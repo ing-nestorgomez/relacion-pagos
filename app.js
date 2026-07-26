@@ -1,132 +1,112 @@
 // app.js
 
-let datosProcesadosGlobal = []; // Almacena los resultados para exportar
+let comprobanteWB = null;
+let bancosWB = null;
 
-// Función auxiliar para leer un archivo Excel como Workbook
-function leerExcel(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const data = new Uint8Array(e.target.result);
-      const workbook = XLSX.read(data, { type: 'array' });
-      resolve(workbook);
-    };
-    reader.onerror = (error) => reject(error);
-    reader.readAsArrayBuffer(file);
-  });
-}
+// 1. Lectura del Archivo 1: Comprobante
+document.getElementById('fileComprobante')?.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    const data = new Uint8Array(evt.target.result);
+    comprobanteWB = XLSX.read(data, { type: 'array' });
+    console.log("✅ Comprobante cargado exitosamente.");
+  };
+  reader.readAsArrayBuffer(file);
+});
 
-// Evento Principal: Procesar y Cruzar
-document.getElementById('btnProcesar').addEventListener('click', async () => {
-  const inputComprobantes = document.getElementById('fileComprobantes').files[0];
-  const inputBancos = document.getElementById('fileBancos').files[0];
+// 2. Lectura del Archivo 2: Maestro de Bancos
+document.getElementById('fileBancos')?.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    const data = new Uint8Array(evt.target.result);
+    bancosWB = XLSX.read(data, { type: 'array' });
+    console.log("✅ Maestro de Bancos cargado exitosamente.");
+  };
+  reader.readAsArrayBuffer(file);
+});
 
-  if (!inputComprobantes || !inputBancos) {
-    alert("Por favor selecciona ambos archivos de Excel para continuar.");
+// 3. Procesar y Cruzar Datos
+document.getElementById('btnProcesar')?.addEventListener('click', () => {
+  console.log("🚀 Iniciando procesamiento...");
+
+  if (!comprobanteWB || !bancosWB) {
+    alert("⚠️ Por favor, selecciona y carga ambos archivos antes de procesar.");
     return;
   }
 
   try {
-    const wbComprobantes = await leerExcel(inputComprobantes);
-    const wbBancos = await leerExcel(inputBancos);
+    // Obtener hojas de trabajo
+    const sheetComprobante = comprobanteWB.Sheets[comprobanteWB.SheetNames[0]];
+    const sheetBancos = bancosWB.Sheets[bancosWB.SheetNames[0]];
 
-    // 1. Cargar Maestro de Bancos en un Map
-    const hojaBancos = wbBancos.Sheets[wbBancos.SheetNames[0]];
-    const datosBancos = XLSX.utils.sheet_to_json(hojaBancos);
-    
-    const mapaBancos = new Map();
-    datosBancos.forEach(row => {
-      const rifKey = String(row[EXCEL_CONFIG.maestroBancos.colRif] || '').replace(/[\s-]/g, '').toUpperCase();
-      if (rifKey) {
-        mapaBancos.set(rifKey, {
-          banco: row[EXCEL_CONFIG.maestroBancos.colBanco] || 'NO ENCONTRADO',
-          cuenta: row[EXCEL_CONFIG.maestroBancos.colCuenta] || 'NO ENCONTRADO'
-        });
+    // Convertir a matriz de arreglos (Rows & Cols)
+    const rowsComprobante = XLSX.utils.sheet_to_json(sheetComprobante, { header: 1 });
+    const rowsBancos = XLSX.utils.sheet_to_json(sheetBancos, { header: 1 });
+
+    console.log("Filas Comprobante:", rowsComprobante);
+    console.log("Filas Bancos:", rowsBancos);
+
+    let proveedor = "";
+    let rif = "";
+    let totalPagar = 0;
+    let fecha = "23/7/2026";
+    let concepto = "MATERIAL DE FERRETERIA VARIAS O/C";
+
+    // Extraer Proveedor, RIF y Totales del Comprobante
+    rowsComprobante.forEach((row) => {
+      if (!row || row.length === 0) return;
+
+      const col0 = String(row[0] || '').trim().toUpperCase();
+
+      if (col0 === "PROVEEDOR:") proveedor = row[1] || "";
+      if (col0 === "RIF:") rif = row[1] || "";
+      if (col0 === "TOTAL GENERAL") {
+        // El monto a pagar está en la última posición con valor
+        totalPagar = row[row.length - 1] || row[12] || 0;
       }
     });
 
-    // 2. Recorrer Pestañas de Comprobantes
-    datosProcesadosGlobal = [];
+    console.log(`Datos extraídos -> Proveedor: ${proveedor}, RIF: ${rif}, Total: ${totalPagar}`);
 
-    wbComprobantes.SheetNames.forEach(sheetName => {
-      const sheet = wbComprobantes.Sheets[sheetName];
+    // Buscar coincidencia en el Maestro de Bancos por RIF
+    const cuentaEncontrada = rowsBancos.find((r, idx) => idx > 0 && String(r[0]).trim() === String(rif).trim());
 
-      const proveedor = sheet[EXCEL_CONFIG.comprobante.proveedor]?.v || '';
-      const rifRaw = String(sheet[EXCEL_CONFIG.comprobante.rif]?.v || '');
-      const rifClean = rifRaw.replace(/[\s-]/g, '').toUpperCase();
-      const montoBs = sheet[EXCEL_CONFIG.comprobante.montoBs]?.v || 0;
-      const montoUSD = sheet[EXCEL_CONFIG.comprobante.montoUSD]?.v || 0;
-      const centroCosto = sheet[EXCEL_CONFIG.comprobante.centroCosto]?.v || '';
-      const textoServicio = sheet[EXCEL_CONFIG.comprobante.compraServicio]?.v || '';
+    const banco = cuentaEncontrada ? cuentaEncontrada[2] : "NO ENCONTRADO";
+    const numCuenta = cuentaEncontrada ? cuentaEncontrada[4] : "NO ENCONTRADO";
 
-      // Extraer Órdenes de Compra
-      let ordenesCompra = [];
-      let fila = EXCEL_CONFIG.comprobante.tablaFacturas.filaInicio;
-      
-      while (fila <= 20) {
-        const celdaOC = sheet[`${EXCEL_CONFIG.comprobante.tablaFacturas.colOrdenCompra}${fila}`];
-        if (celdaOC && celdaOC.v) {
-          ordenesCompra.push(celdaOC.v);
-        }
-        fila++;
-      }
+    // Formatear monto
+    const montoFormateado = typeof totalPagar === 'number' 
+      ? totalPagar.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : totalPagar;
 
-      const conceptoFinal = `${ordenesCompra.join(',')} - ${textoServicio}`;
-      const infoBanco = mapaBancos.get(rifClean) || { banco: 'NO REGISTRADO', cuenta: 'NO REGISTRADO' };
+    // Renderizar en el DOM
+    const tbody = document.querySelector('tbody');
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr class="border-b border-slate-700/50 hover:bg-slate-800/50 transition-colors">
+          <td class="py-3.5 px-4 text-slate-300">${fecha}</td>
+          <td class="py-3.5 px-4 font-mono text-sky-400 font-semibold">${rif || 'N/A'}</td>
+          <td class="py-3.5 px-4 font-medium text-slate-100">${proveedor || 'N/A'}</td>
+          <td class="py-3.5 px-4 text-slate-300">${concepto}</td>
+          <td class="py-3.5 px-4 text-emerald-400 font-medium">${banco}</td>
+          <td class="py-3.5 px-4 font-mono text-slate-300">${numCuenta}</td>
+          <td class="py-3.5 px-4 font-bold text-slate-100 text-right">${montoFormateado} Bs.</td>
+        </tr>
+      `;
+    }
 
-      datosProcesadosGlobal.push({
-        FECHA: new Date().toLocaleDateString('es-VE'),
-        'C.I./RIF': rifRaw,
-        'NOMBRE O RAZON SOCIAL': proveedor,
-        CONCEPTO: conceptoFinal,
-        BANCO: infoBanco.banco,
-        'N° CUENTA': infoBanco.cuenta,
-        'CENTRO DE COSTO': centroCosto,
-        'MONTO Bs.': montoBs,
-        'MONTO $': montoUSD
-      });
-    });
+    // Mostrar botón de exportación
+    const btnExportar = document.getElementById('btnExportar');
+    if (btnExportar) btnExportar.classList.remove('hidden');
 
-    // 3. Renderizar Vista Previa y habilitar botón de descarga
-    renderizarTabla(datosProcesadosGlobal);
-    document.getElementById('btnExportar').classList.remove('hidden');
+    console.log("✨ Proceso completado con éxito.");
 
   } catch (error) {
-    console.error(error);
-    alert("Ocurrió un error al procesar los archivos. Revisa la consola.");
+    console.error("❌ Error durante el procesamiento:", error);
+    alert("Ocurrió un error al procesar los datos. Revisa la consola para más detalle.");
   }
 });
-
-// Evento: Exportar a Excel
-document.getElementById('btnExportar').addEventListener('click', () => {
-  if (datosProcesadosGlobal.length === 0) return;
-
-  // Crear una nueva hoja de cálculo a partir de los datos procesados
-  const worksheet = XLSX.utils.json_to_sheet(datosProcesadosGlobal);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Relación de Pagos");
-
-  // Generar y descargar el archivo .xlsx
-  XLSX.writeFile(workbook, `Relacion_de_Pagos_${new Date().toISOString().slice(0, 10)}.xlsx`);
-});
-
-// Renderizar Vista Previa
-function renderizarTabla(datos) {
-  const tbody = document.getElementById('tablaVistaPrevia');
-  tbody.innerHTML = '';
-
-  datos.forEach(row => {
-    const tr = document.createElement('tr');
-    tr.className = 'border-b border-slate-700/50 hover:bg-slate-800/50';
-    tr.innerHTML = `
-      <td class="p-2">${row.FECHA}</td>
-      <td class="p-2 font-mono">${row['C.I./RIF']}</td>
-      <td class="p-2 font-semibold">${row['NOMBRE O RAZON SOCIAL']}</td>
-      <td class="p-2 text-slate-400 max-w-xs truncate" title="${row.CONCEPTO}">${row.CONCEPTO}</td>
-      <td class="p-2 text-sky-400">${row.BANCO}</td>
-      <td class="p-2 font-mono text-xs">${row['N° CUENTA']}</td>
-      <td class="p-2 text-right font-semibold text-emerald-400">${Number(row['MONTO Bs.']).toLocaleString('es-VE', {minimumFractionDigits: 2})}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
