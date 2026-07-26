@@ -1,5 +1,8 @@
 // app.js
-// Función auxiliar para leer un archivo Excel y retornar su libro de trabajo (Workbook)
+// Variable global para almacenar los datos cruzados que se exportarán a Excel
+let datosProcesadosParaExportar = [];
+
+// Función auxiliar para leer un archivo Excel y retornar su libro de trabajo
 function leerExcel(inputElement) {
   return new Promise((resolve, reject) => {
     const file = inputElement?.files?.[0];
@@ -22,16 +25,14 @@ function leerExcel(inputElement) {
   });
 }
 
-// Escuchador principal para el botón Procesar
+// 1. Botón Procesar y Cruzar Datos
 document.getElementById('btnProcesar')?.addEventListener('click', async () => {
   console.log("🚀 Iniciando procesamiento...");
 
-  // Detectar automáticamente los inputs de archivos (Soporta múltiples combinaciones de IDs)
   const inputComprobante = document.getElementById('fileComprobante') || document.querySelectorAll('input[type="file"]')[0];
   const inputBancos = document.getElementById('fileBancos') || document.querySelectorAll('input[type="file"]')[1];
 
   try {
-    // Leer ambos archivos al presionar el botón
     const comprobanteWB = await leerExcel(inputComprobante);
     const bancosWB = await leerExcel(inputBancos);
 
@@ -40,13 +41,10 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
       return;
     }
 
-    console.log("✅ Archivos leídos con éxito.");
-
-    // Obtener hojas de trabajo
+    // Obtener hojas
     const sheetComprobante = comprobanteWB.Sheets[comprobanteWB.SheetNames[0]];
     const sheetBancos = bancosWB.Sheets[bancosWB.SheetNames[0]];
 
-    // Convertir a matriz de arreglos
     const rowsComprobante = XLSX.utils.sheet_to_json(sheetComprobante, { header: 1 });
     const rowsBancos = XLSX.utils.sheet_to_json(sheetBancos, { header: 1 });
 
@@ -68,15 +66,13 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
       }
     });
 
-    console.log(`Datos extraídos -> Proveedor: ${proveedor}, RIF: ${rif}, Total: ${totalPagar}`);
-
     // Buscar coincidencia en Maestro por RIF
     const cuentaEncontrada = rowsBancos.find((r, idx) => idx > 0 && String(r[0]).trim() === String(rif).trim());
 
     const banco = cuentaEncontrada ? cuentaEncontrada[2] : "NO ENCONTRADO";
     const numCuenta = cuentaEncontrada ? cuentaEncontrada[4] : "NO ENCONTRADO";
 
-    // Formatear monto
+    // Formatear monto para visualización
     const montoFormateado = typeof totalPagar === 'number' 
       ? totalPagar.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : totalPagar;
@@ -97,7 +93,13 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
       `;
     }
 
-    // Mostrar botón de exportación
+    // Guardar los datos limpios para la exportación
+    datosProcesadosParaExportar = [
+      ["FECHA", "RIF", "PROVEEDOR", "CONCEPTO", "BANCO", "N° CUENTA", "MONTO BS."],
+      [fecha, rif, proveedor, concepto, banco, numCuenta, totalPagar]
+    ];
+
+    // Mostrar el botón de exportar si estaba oculto
     const btnExportar = document.getElementById('btnExportar');
     if (btnExportar) btnExportar.classList.remove('hidden');
 
@@ -107,4 +109,33 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
     console.error("❌ Error durante el procesamiento:", error);
     alert("Ocurrió un error al procesar los datos. Revisa la consola.");
   }
+});
+
+// 2. Botón Descargar Excel Final
+document.getElementById('btnExportar')?.addEventListener('click', () => {
+  if (!datosProcesadosParaExportar.length) {
+    alert("No hay datos para exportar. Por favor procesa los archivos primero.");
+    return;
+  }
+
+  // Crear libro y hoja de cálculo
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(datosProcesadosParaExportar);
+
+  // Definir anchos de columnas para que el Excel descargado quede ordenado
+  ws['!cols'] = [
+    { wch: 12 }, // FECHA
+    { wch: 16 }, // RIF
+    { wch: 35 }, // PROVEEDOR
+    { wch: 40 }, // CONCEPTO
+    { wch: 22 }, // BANCO
+    { wch: 28 }, // N° CUENTA
+    { wch: 18 }  // MONTO BS.
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, "Relacion_de_Pagos");
+
+  // Descargar el archivo Excel
+  const fechaHoy = new Date().toISOString().split('T')[0];
+  XLSX.writeFile(wb, `Relacion_Pagos_Final_${fechaHoy}.xlsx`);
 });
