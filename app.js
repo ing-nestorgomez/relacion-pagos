@@ -1,54 +1,54 @@
 // app.js
+// Función auxiliar para leer un archivo Excel y retornar su libro de trabajo (Workbook)
+function leerExcel(inputElement) {
+  return new Promise((resolve, reject) => {
+    const file = inputElement?.files?.[0];
+    if (!file) {
+      resolve(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        resolve(wb);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsArrayBuffer(file);
+  });
+}
 
-let comprobanteWB = null;
-let bancosWB = null;
-
-// 1. Lectura del Archivo 1: Comprobante
-document.getElementById('fileComprobante')?.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (evt) => {
-    const data = new Uint8Array(evt.target.result);
-    comprobanteWB = XLSX.read(data, { type: 'array' });
-    console.log("✅ Comprobante cargado exitosamente.");
-  };
-  reader.readAsArrayBuffer(file);
-});
-
-// 2. Lectura del Archivo 2: Maestro de Bancos
-document.getElementById('fileBancos')?.addEventListener('change', (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (evt) => {
-    const data = new Uint8Array(evt.target.result);
-    bancosWB = XLSX.read(data, { type: 'array' });
-    console.log("✅ Maestro de Bancos cargado exitosamente.");
-  };
-  reader.readAsArrayBuffer(file);
-});
-
-// 3. Procesar y Cruzar Datos
-document.getElementById('btnProcesar')?.addEventListener('click', () => {
+// Escuchador principal para el botón Procesar
+document.getElementById('btnProcesar')?.addEventListener('click', async () => {
   console.log("🚀 Iniciando procesamiento...");
 
-  if (!comprobanteWB || !bancosWB) {
-    alert("⚠️ Por favor, selecciona y carga ambos archivos antes de procesar.");
-    return;
-  }
+  // Detectar automáticamente los inputs de archivos (Soporta múltiples combinaciones de IDs)
+  const inputComprobante = document.getElementById('fileComprobante') || document.querySelectorAll('input[type="file"]')[0];
+  const inputBancos = document.getElementById('fileBancos') || document.querySelectorAll('input[type="file"]')[1];
 
   try {
+    // Leer ambos archivos al presionar el botón
+    const comprobanteWB = await leerExcel(inputComprobante);
+    const bancosWB = await leerExcel(inputBancos);
+
+    if (!comprobanteWB || !bancosWB) {
+      alert("⚠️ Por favor, selecciona y carga ambos archivos antes de procesar.");
+      return;
+    }
+
+    console.log("✅ Archivos leídos con éxito.");
+
     // Obtener hojas de trabajo
     const sheetComprobante = comprobanteWB.Sheets[comprobanteWB.SheetNames[0]];
     const sheetBancos = bancosWB.Sheets[bancosWB.SheetNames[0]];
 
-    // Convertir a matriz de arreglos (Rows & Cols)
+    // Convertir a matriz de arreglos
     const rowsComprobante = XLSX.utils.sheet_to_json(sheetComprobante, { header: 1 });
     const rowsBancos = XLSX.utils.sheet_to_json(sheetBancos, { header: 1 });
-
-    console.log("Filas Comprobante:", rowsComprobante);
-    console.log("Filas Bancos:", rowsBancos);
 
     let proveedor = "";
     let rif = "";
@@ -56,23 +56,21 @@ document.getElementById('btnProcesar')?.addEventListener('click', () => {
     let fecha = "23/7/2026";
     let concepto = "MATERIAL DE FERRETERIA VARIAS O/C";
 
-    // Extraer Proveedor, RIF y Totales del Comprobante
+    // Extraer datos de la cabecera
     rowsComprobante.forEach((row) => {
       if (!row || row.length === 0) return;
-
       const col0 = String(row[0] || '').trim().toUpperCase();
 
       if (col0 === "PROVEEDOR:") proveedor = row[1] || "";
       if (col0 === "RIF:") rif = row[1] || "";
       if (col0 === "TOTAL GENERAL") {
-        // El monto a pagar está en la última posición con valor
         totalPagar = row[row.length - 1] || row[12] || 0;
       }
     });
 
     console.log(`Datos extraídos -> Proveedor: ${proveedor}, RIF: ${rif}, Total: ${totalPagar}`);
 
-    // Buscar coincidencia en el Maestro de Bancos por RIF
+    // Buscar coincidencia en Maestro por RIF
     const cuentaEncontrada = rowsBancos.find((r, idx) => idx > 0 && String(r[0]).trim() === String(rif).trim());
 
     const banco = cuentaEncontrada ? cuentaEncontrada[2] : "NO ENCONTRADO";
@@ -83,7 +81,7 @@ document.getElementById('btnProcesar')?.addEventListener('click', () => {
       ? totalPagar.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : totalPagar;
 
-    // Renderizar en el DOM
+    // Renderizar en la tabla
     const tbody = document.querySelector('tbody');
     if (tbody) {
       tbody.innerHTML = `
@@ -107,6 +105,6 @@ document.getElementById('btnProcesar')?.addEventListener('click', () => {
 
   } catch (error) {
     console.error("❌ Error durante el procesamiento:", error);
-    alert("Ocurrió un error al procesar los datos. Revisa la consola para más detalle.");
+    alert("Ocurrió un error al procesar los datos. Revisa la consola.");
   }
 });
