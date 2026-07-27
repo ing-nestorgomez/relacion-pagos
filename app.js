@@ -69,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnProcesar = document.getElementById('btnProcesar') || document.querySelector('button');
   
   btnProcesar?.addEventListener('click', async () => {
-    console.log("🚀 Procesando con extracción de celdas F28 y N35...");
+    console.log("🚀 Procesando con extracción segura de Monto Bs, USD y Semana...");
 
     const inputs = document.querySelectorAll('input[type="file"]');
     const inputComprobante = inputs[0];
@@ -135,6 +135,22 @@ document.addEventListener('DOMContentLoaded', () => {
         let montoUsd = (typeof valF28 === 'number') ? valF28 : (parseFloat(valF28) || 0);
         let semana = valN35 !== null ? String(valN35).trim() : "";
 
+        // --- EXTRACCIÓN SEGURA DE MONTO BS. ---
+        let valN26 = obtenerValorCelda(sheet, 'N26');
+        let valN25 = obtenerValorCelda(sheet, 'N25');
+        let valI26 = obtenerValorCelda(sheet, 'I26');
+        let valI25 = obtenerValorCelda(sheet, 'I25');
+
+        if (typeof valN26 === 'number' && valN26 > 10) {
+          totalBs = valN26;
+        } else if (typeof valN25 === 'number' && valN25 > 10) {
+          totalBs = valN25;
+        } else if (typeof valI26 === 'number' && valI26 > 10) {
+          totalBs = valI26;
+        } else if (typeof valI25 === 'number' && valI25 > 10) {
+          totalBs = valI25;
+        }
+
         let colConcepto = -1;
         let enBloqueConcepto = false;
 
@@ -159,10 +175,15 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (idx !== -1 && row[idx + 3]) rif = String(row[idx + 3]).trim();
           }
 
-          // Extraer TOTAL GENERAL en Bs.
-          if (filaTexto.toUpperCase().includes("TOTAL GENERAL") && !filaTexto.toUpperCase().includes("USD")) {
-            const numeros = row.filter(val => typeof val === 'number' && val > 0);
-            if (numeros.length > 0) totalBs = numeros[numeros.length - 1];
+          // Extraer TOTAL GENERAL en Bs. (Búsqueda acotada entre F y N si las celdas fijas fallaron)
+          if (totalBs === 0 && filaTexto.toUpperCase().includes("TOTAL GENERAL") && !filaTexto.toUpperCase().includes("USD")) {
+            for (let colIdx = 13; colIdx >= 5; colIdx--) { // Delimitado de Col N (13) a Col F (5)
+              const val = row[colIdx];
+              if (typeof val === 'number' && val > 10) {
+                totalBs = val;
+                break;
+              }
+            }
           }
 
           // Extraer CENTRO DE COSTO
