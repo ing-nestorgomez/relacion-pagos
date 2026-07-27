@@ -297,7 +297,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const btnExportar = document.getElementById('btnExportar');
       if (btnExportar) btnExportar.classList.remove('hidden');
 
-      alert(`✅ ¡Éxito! Se procesaron ${resultadosConsolidados.length} comprobantes con Monto $ (F28) y Semana (N35).`);
+      alert(`✅ ¡Éxito! Se procesaron ${resultadosConsolidados.length} comprobantes.`);
 
     } catch (error) {
       console.error("❌ Error en procesamiento:", error);
