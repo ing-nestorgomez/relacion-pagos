@@ -1,9 +1,30 @@
 let resultadosConsolidados = [];
 
-// Normalizar RIF (ej: "J-401800440 " -> "J401800440")
+// Función avanzada para limpiar y estandarizar RIFs / Cédulas
 function normalizarRif(rif) {
   if (!rif) return "";
-  return String(rif).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let str = String(rif).toUpperCase().trim();
+  
+  // Extraer la letra inicial (J, V, G, E, P, C)
+  const letraMatch = str.match(/^[JVGEPC]/);
+  const letra = letraMatch ? letraMatch[0] : "";
+
+  // Dejar solo números
+  let numeros = str.replace(/[^0-9]/g, '');
+
+  // Eliminar ceros a la izquierda innecesarios en el cuerpo numérico si existen
+  if (numeros.length > 8 && numeros.startsWith('0')) {
+    numeros = numeros.replace(/^0+/, '');
+  }
+
+  return letra + numeros;
+}
+
+// Función para limpiar números de cuenta o datos bancarios
+function limpiarNumeroCuenta(cuenta) {
+  if (!cuenta) return "NO ENCONTRADO";
+  const limpia = String(cuenta).replace(/[^0-9]/g, '');
+  return limpia.length > 0 ? limpia : String(cuenta).trim();
 }
 
 // Formatear fechas a DD/MM/YYYY
@@ -44,7 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnProcesar = document.getElementById('btnProcesar') || document.querySelector('button');
   
   btnProcesar?.addEventListener('click', async () => {
-    console.log("🚀 Iniciando procesamiento...");
+    console.log("🚀 Iniciando procesamiento con normalización estricta...");
 
     const inputs = document.querySelectorAll('input[type="file"]');
     const inputComprobante = inputs[0];
@@ -59,23 +80,33 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // 1. Cargar Maestro de Proveedores
+      // 1. Cargar Maestro de Proveedores (Limpiando RIFs y Cuentas)
       const sheetBancos = bancosWB.Sheets[bancosWB.SheetNames[0]];
       const rowsBancos = XLSX.utils.sheet_to_json(sheetBancos, { header: 1 });
       
       const mapaProveedores = {};
+      const listaProveedoresPorNombre = [];
+
       rowsBancos.forEach(row => {
         if (row && row.length > 0) {
-          const celda0 = String(row[0] || '').trim();
-          if (celda0 && celda0.toUpperCase() !== 'RIF' && celda0.toUpperCase() !== 'C.I./R.I.F.') {
-            const rifNorm = normalizarRif(celda0);
-            mapaProveedores[rifNorm] = {
-              rifOriginal: celda0,
-              proveedor: row[1] ? String(row[1]).trim() : "",
-              banco: row[2] ? String(row[2]).trim() : "",
-              cuenta: row[3] ? String(row[3]).trim() : "",
+          const celdaRif = String(row[0] || row[1] || '').trim();
+          if (celdaRif && !celdaRif.toUpperCase().includes('RIF') && !celdaRif.toUpperCase().includes('C.I.')) {
+            const rifNorm = normalizarRif(celdaRif);
+            const proveedorNombre = row[1] ? String(row[1]).trim() : "";
+            const datosObj = {
+              rifOriginal: celdaRif,
+              proveedor: proveedorNombre,
+              banco: row[2] ? String(row[2]).trim() : "NO ENCONTRADO",
+              cuenta: limpiarNumeroCuenta(row[3]),
               tipo: row[4] ? String(row[4]).trim() : ""
             };
+
+            if (rifNorm) {
+              mapaProveedores[rifNorm] = datosObj;
+            }
+            if (proveedorNombre) {
+              listaProveedoresPorNombre.push(datosObj);
+            }
           }
         }
       });
@@ -99,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let colConcepto = -1;
         let enBloqueConcepto = false;
 
-        rows.forEach((row, rIdx) => {
+        rows.forEach((row) => {
           if (!row || row.length === 0) return;
 
           const filaTexto = row.map(c => String(c || '').trim()).join(' | ');
@@ -148,7 +179,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
           // Capturar el contenido del cuadro COMPRA / SERVICIO
           if (enBloqueConcepto) {
-            // Detener lectura si llegamos a la sección de firmas o presupuestos
             if (filaTexto.toUpperCase().includes("ELABORADO POR") || filaTexto.toUpperCase().includes("DATOS DE ANTICIPOS")) {
               enBloqueConcepto = false;
             } else {
@@ -156,13 +186,11 @@ document.addEventListener('DOMContentLoaded', () => {
               if (colConcepto !== -1 && row[colConcepto]) {
                 valCelda = String(row[colConcepto]).trim();
               } else {
-                // Fallback: buscar cualquier celda con texto descriptivo en la fila
                 const candidato = row.find((c, i) => i >= 4 && String(c).trim().length > 3 && !String(c).toUpperCase().includes("OBSERVACION"));
                 if (candidato) valCelda = String(candidato).trim();
               }
 
               if (valCelda && valCelda.toUpperCase() !== "COMPRA / SERVICIO" && valCelda.toUpperCase() !== "OBSERVACION") {
-                // Reemplazar saltos de línea por espacios si existen
                 conceptoPartes.push(valCelda.replace(/\r?\n|\r/g, ' '));
               }
             }
@@ -175,14 +203,26 @@ document.addEventListener('DOMContentLoaded', () => {
           });
         });
 
-        // Construir el concepto final unido por espacios
         let conceptoFinal = conceptoPartes.join(" ").trim();
         if (!conceptoFinal) conceptoFinal = "PAGO DE FACTURAS Y SERVICIOS";
 
-        // Registrar pestaña procesada
+        // Registrar pestaña procesada y buscar coincidencias cruzadas
         if (rif || proveedor || totalBs > 0) {
           const rifNorm = normalizarRif(rif);
-          const datosBanco = mapaProveedores[rifNorm] || {};
+          
+          // 1. Coincidencia por RIF Normalizado
+          let datosBanco = mapaProveedores[rifNorm];
+
+          // 2. Si no lo encuentra por RIF, buscar por similitud de Nombre/Proveedor
+          if (!datosBanco && proveedor) {
+            const provLimpio = proveedor.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            datosBanco = listaProveedoresPorNombre.find(item => {
+              const itemLimpio = item.proveedor.toUpperCase().replace(/[^A-Z0-9]/g, '');
+              return itemLimpio.includes(provLimpio) || provLimpio.includes(itemLimpio);
+            });
+          }
+
+          datosBanco = datosBanco || {};
 
           resultadosConsolidados.push({
             fecha: fecha,
@@ -191,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
             concepto: conceptoFinal,
             banco: datosBanco.banco || "NO ENCONTRADO",
             numCuenta: datosBanco.cuenta || "NO ENCONTRADO",
-            anexoDirect: datosBanco.banco ? "SI" : "NO",
+            anexoDirect: (datosBanco.banco && datosBanco.banco !== "NO ENCONTRADO") ? "SI" : "NO",
             centroCosto: centroCosto,
             montoBs: typeof totalBs === 'number' ? totalBs : parseFloat(totalBs) || 0,
             montoUsd: typeof totalUsd === 'number' ? totalUsd : parseFloat(totalUsd) || 0,
@@ -209,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <td class="py-2.5 px-3 font-mono text-sky-400 font-semibold text-xs">${item.rif}</td>
             <td class="py-2.5 px-3 font-medium text-slate-100 text-xs">${item.proveedor}</td>
             <td class="py-2.5 px-3 text-slate-300 text-xs truncate max-w-xs" title="${item.concepto}">${item.concepto}</td>
-            <td class="py-2.5 px-3 text-emerald-400 font-medium text-xs">${item.banco}</td>
+            <td class="py-2.5 px-3 ${item.banco === 'NO ENCONTRADO' ? 'text-amber-400 font-bold' : 'text-emerald-400 font-medium'} text-xs">${item.banco}</td>
             <td class="py-2.5 px-3 font-mono text-slate-300 text-xs">${item.numCuenta}</td>
             <td class="py-2.5 px-3 font-bold text-slate-100 text-right text-xs">${item.montoBs.toLocaleString('es-VE', {minimumFractionDigits:2, maximumFractionDigits:2})} Bs.</td>
           </tr>
