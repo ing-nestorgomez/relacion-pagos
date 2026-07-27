@@ -82,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       resultadosConsolidados = [];
 
-      // 2. Iterar sobre las 49 pestañas
+      // 2. Iterar sobre las pestañas
       comprobanteWB.SheetNames.forEach(sheetName => {
         const sheet = comprobanteWB.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
@@ -90,16 +90,18 @@ document.addEventListener('DOMContentLoaded', () => {
         let proveedor = "";
         let rif = "";
         let fecha = "23/07/2026";
-        let concepto = "PAGO DE FACTURAS Y SERVICIOS";
+        let conceptoPartes = [];
         let centroCosto = "ADMINISTRACION";
         let ppto = "SEM 29";
         let totalBs = 0;
         let totalUsd = 0;
 
-        rows.forEach(row => {
+        let colConcepto = -1;
+        let enBloqueConcepto = false;
+
+        rows.forEach((row, rIdx) => {
           if (!row || row.length === 0) return;
 
-          // Unir toda la fila a texto para encontrar palabras clave independientemente de la columna
           const filaTexto = row.map(c => String(c || '').trim()).join(' | ');
 
           // Extraer PROVEEDOR
@@ -107,6 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const idx = row.findIndex(c => String(c).toUpperCase().includes("PROVEEDOR:"));
             if (idx !== -1 && row[idx + 1]) proveedor = String(row[idx + 1]).trim();
             else if (idx !== -1 && row[idx + 2]) proveedor = String(row[idx + 2]).trim();
+            else if (idx !== -1 && row[idx + 3]) proveedor = String(row[idx + 3]).trim();
           }
 
           // Extraer RIF
@@ -114,9 +117,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const idx = row.findIndex(c => String(c).toUpperCase().includes("RIF:"));
             if (idx !== -1 && row[idx + 1]) rif = String(row[idx + 1]).trim();
             else if (idx !== -1 && row[idx + 2]) rif = String(row[idx + 2]).trim();
+            else if (idx !== -1 && row[idx + 3]) rif = String(row[idx + 3]).trim();
           }
 
-          // Extraer TOTAL GENERAL
+          // Extraer TOTAL GENERAL en Bs.
           if (filaTexto.toUpperCase().includes("TOTAL GENERAL") && !filaTexto.toUpperCase().includes("USD")) {
             const numeros = row.filter(val => typeof val === 'number' && val > 0);
             if (numeros.length > 0) totalBs = numeros[numeros.length - 1];
@@ -135,10 +139,33 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (idx !== -1 && row[idx + 2]) centroCosto = String(row[idx + 2]).trim();
           }
 
-          // Extraer CONCEPTO DEL PAGO
-          if (filaTexto.toUpperCase().includes("CONCEPTO DEL PAGO:") || filaTexto.toUpperCase().includes("CRÉDITO - CONTADO") || filaTexto.toUpperCase().includes("CONTADO")) {
-            const textoLargo = row.find(c => String(c).length > 15 && !String(c).includes("http") && !String(c).toUpperCase().includes("PROVEEDOR"));
-            if (textoLargo) concepto = String(textoLargo).trim().replace(/\n/g, ' ');
+          // Detectar columna de COMPRA / SERVICIO
+          if (filaTexto.toUpperCase().includes("COMPRA / SERVICIO")) {
+            colConcepto = row.findIndex(c => String(c).toUpperCase().includes("COMPRA / SERVICIO"));
+            enBloqueConcepto = true;
+            return;
+          }
+
+          // Capturar el contenido del cuadro COMPRA / SERVICIO
+          if (enBloqueConcepto) {
+            // Detener lectura si llegamos a la sección de firmas o presupuestos
+            if (filaTexto.toUpperCase().includes("ELABORADO POR") || filaTexto.toUpperCase().includes("DATOS DE ANTICIPOS")) {
+              enBloqueConcepto = false;
+            } else {
+              let valCelda = "";
+              if (colConcepto !== -1 && row[colConcepto]) {
+                valCelda = String(row[colConcepto]).trim();
+              } else {
+                // Fallback: buscar cualquier celda con texto descriptivo en la fila
+                const candidato = row.find((c, i) => i >= 4 && String(c).trim().length > 3 && !String(c).toUpperCase().includes("OBSERVACION"));
+                if (candidato) valCelda = String(candidato).trim();
+              }
+
+              if (valCelda && valCelda.toUpperCase() !== "COMPRA / SERVICIO" && valCelda.toUpperCase() !== "OBSERVACION") {
+                // Reemplazar saltos de línea por espacios si existen
+                conceptoPartes.push(valCelda.replace(/\r?\n|\r/g, ' '));
+              }
+            }
           }
 
           // Extraer Presupuesto
@@ -147,6 +174,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (strCell.toUpperCase().startsWith("SEM")) ppto = strCell;
           });
         });
+
+        // Construir el concepto final unido por espacios
+        let conceptoFinal = conceptoPartes.join(" ").trim();
+        if (!conceptoFinal) conceptoFinal = "PAGO DE FACTURAS Y SERVICIOS";
 
         // Registrar pestaña procesada
         if (rif || proveedor || totalBs > 0) {
@@ -157,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fecha: fecha,
             rif: rif || datosBanco.rifOriginal || "N/A",
             proveedor: proveedor || datosBanco.proveedor || sheetName,
-            concepto: concepto,
+            concepto: conceptoFinal,
             banco: datosBanco.banco || "NO ENCONTRADO",
             numCuenta: datosBanco.cuenta || "NO ENCONTRADO",
             anexoDirect: datosBanco.banco ? "SI" : "NO",
@@ -228,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const ws = XLSX.utils.aoa_to_sheet(dataFinal);
 
     ws['!cols'] = [
-      { wch: 12 }, { wch: 16 }, { wch: 35 }, { wch: 40 },
+      { wch: 12 }, { wch: 16 }, { wch: 35 }, { wch: 50 },
       { wch: 18 }, { wch: 26 }, { wch: 14 }, { wch: 18 },
       { wch: 18 }, { wch: 14 }, { wch: 12 }
     ];
