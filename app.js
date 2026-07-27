@@ -1,6 +1,6 @@
 let resultadosConsolidados = [];
 
-// Función para limpiar RIFs (ej: "J-401800440 " -> "J401800440")
+// Función para limpiar el RIFs (ej: "J-401800440 " -> "J401800440")
 function normalizarRif(rif) {
   if (!rif) return "";
   return String(rif).toUpperCase().replace(/[^A-Z0-9]/g, '');
