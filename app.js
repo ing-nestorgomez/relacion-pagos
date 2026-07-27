@@ -1,43 +1,49 @@
 let resultadosConsolidados = [];
 
-// Función avanzada para limpiar y estandarizar RIFs / Cédulas
-function normalizarRif(rif) {
-  if (!rif) return "";
-  let str = String(rif).toUpperCase().trim();
+// 1. Limpieza Profunda de RIF / Cédula (Remueve ceros a la izquierda y caracteres extraños)
+function limpiarIdentificacion(ident) {
+  if (!ident) return "";
+  let str = String(ident).toUpperCase().trim();
   
-  // Extraer la letra inicial (J, V, G, E, P, C)
+  // Extraer Letra inicial (V, J, E, G, P, C)
   const letraMatch = str.match(/^[JVGEPC]/);
   const letra = letraMatch ? letraMatch[0] : "";
 
-  // Dejar solo números
+  // Dejar solo los números
   let numeros = str.replace(/[^0-9]/g, '');
 
-  // Eliminar ceros a la izquierda innecesarios en el cuerpo numérico si existen
-  if (numeros.length > 8 && numeros.startsWith('0')) {
-    numeros = numeros.replace(/^0+/, '');
-  }
+  // Eliminar ceros a la izquierda tras la letra (ej: V-05990300 -> V5990300)
+  numeros = numeros.replace(/^0+/, '');
 
   return letra + numeros;
 }
 
-// Función para limpiar números de cuenta o datos bancarios
+// 2. Extraer "Base" de la cédula/RIF (sin el dígito verificador final si existe)
+function obtenerBaseNum(limpio) {
+  if (!limpio) return { exacto: "", base: "", soloNumeros: "" };
+  
+  const letra = limpio[0] && isNaN(limpio[0]) ? limpio[0] : "";
+  const numeros = letra ? limpio.slice(1) : limpio;
+  
+  // Si tiene más de 7 dígitos, guardamos la base quitando el último dígito (dígito verificador)
+  const base = numeros.length > 7 ? numeros.slice(0, -1) : numeros;
+
+  return {
+    exacto: limpio,
+    baseConLetra: letra + base,
+    baseNumerica: base,
+    soloNumeros: numeros
+  };
+}
+
+// Limpiar números de cuenta
 function limpiarNumeroCuenta(cuenta) {
   if (!cuenta) return "NO ENCONTRADO";
   const limpia = String(cuenta).replace(/[^0-9]/g, '');
   return limpia.length > 0 ? limpia : String(cuenta).trim();
 }
 
-// Formatear fechas a DD/MM/YYYY
-function formatearFecha(fechaRaw) {
-  if (!fechaRaw) return "23/07/2026";
-  if (typeof fechaRaw === 'string' && fechaRaw.includes('-')) {
-    const partes = fechaRaw.split('T')[0].split('-');
-    if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
-  }
-  return String(fechaRaw);
-}
-
-// Leer Excel desde input
+// Leer Excel
 function leerExcel(inputElement) {
   return new Promise((resolve, reject) => {
     const file = inputElement?.files?.[0];
@@ -65,7 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnProcesar = document.getElementById('btnProcesar') || document.querySelector('button');
   
   btnProcesar?.addEventListener('click', async () => {
-    console.log("🚀 Iniciando procesamiento con normalización estricta...");
+    console.log("🚀 Procesando con capa avanzada de coincidencias...");
 
     const inputs = document.querySelectorAll('input[type="file"]');
     const inputComprobante = inputs[0];
@@ -80,40 +86,38 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // 1. Cargar Maestro de Proveedores (Limpiando RIFs y Cuentas)
+      // 1. Cargar Maestro de Proveedores creando múltiples índices de búsqueda
       const sheetBancos = bancosWB.Sheets[bancosWB.SheetNames[0]];
       const rowsBancos = XLSX.utils.sheet_to_json(sheetBancos, { header: 1 });
       
-      const mapaProveedores = {};
-      const listaProveedoresPorNombre = [];
+      const listaMaestro = [];
 
       rowsBancos.forEach(row => {
         if (row && row.length > 0) {
           const celdaRif = String(row[0] || row[1] || '').trim();
           if (celdaRif && !celdaRif.toUpperCase().includes('RIF') && !celdaRif.toUpperCase().includes('C.I.')) {
-            const rifNorm = normalizarRif(celdaRif);
+            
+            const limpio = limpiarIdentificacion(celdaRif);
+            const variante = obtenerBaseNum(limpio);
             const proveedorNombre = row[1] ? String(row[1]).trim() : "";
-            const datosObj = {
+
+            listaMaestro.push({
               rifOriginal: celdaRif,
+              limpio: variante.exacto,
+              baseConLetra: variante.baseConLetra,
+              baseNumerica: variante.baseNumerica,
+              soloNumeros: variante.soloNumeros,
               proveedor: proveedorNombre,
               banco: row[2] ? String(row[2]).trim() : "NO ENCONTRADO",
-              cuenta: limpiarNumeroCuenta(row[3]),
-              tipo: row[4] ? String(row[4]).trim() : ""
-            };
-
-            if (rifNorm) {
-              mapaProveedores[rifNorm] = datosObj;
-            }
-            if (proveedorNombre) {
-              listaProveedoresPorNombre.push(datosObj);
-            }
+              cuenta: limpiarNumeroCuenta(row[3])
+            });
           }
         }
       });
 
       resultadosConsolidados = [];
 
-      // 2. Iterar sobre las pestañas
+      // 2. Iterar sobre las pestañas de Comprobantes
       comprobanteWB.SheetNames.forEach(sheetName => {
         const sheet = comprobanteWB.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
@@ -206,19 +210,41 @@ document.addEventListener('DOMContentLoaded', () => {
         let conceptoFinal = conceptoPartes.join(" ").trim();
         if (!conceptoFinal) conceptoFinal = "PAGO DE FACTURAS Y SERVICIOS";
 
-        // Registrar pestaña procesada y buscar coincidencias cruzadas
+        // Realizar Búsqueda Multinivel en el Maestro
         if (rif || proveedor || totalBs > 0) {
-          const rifNorm = normalizarRif(rif);
+          const limpioComp = limpiarIdentificacion(rif);
+          const varComp = obtenerBaseNum(limpioComp);
           
-          // 1. Coincidencia por RIF Normalizado
-          let datosBanco = mapaProveedores[rifNorm];
+          let datosBanco = null;
 
-          // 2. Si no lo encuentra por RIF, buscar por similitud de Nombre/Proveedor
+          // Capa 1: Coincidencia Exacta Limpia (ej: V5990300 === V5990300)
+          if (varComp.exacto) {
+            datosBanco = listaMaestro.find(item => item.limpio === varComp.exacto);
+          }
+
+          // Capa 2: Coincidencia por Base (Ignorando dígito verificador extra, ej: V59903005 con V5990300)
+          if (!datosBanco && varComp.baseConLetra) {
+            datosBanco = listaMaestro.find(item => 
+              item.baseConLetra === varComp.baseConLetra ||
+              item.limpio === varComp.baseConLetra ||
+              item.baseConLetra === varComp.exacto
+            );
+          }
+
+          // Capa 3: Coincidencia Numérica Pura
+          if (!datosBanco && varComp.baseNumerica) {
+            datosBanco = listaMaestro.find(item => 
+              item.baseNumerica === varComp.baseNumerica ||
+              item.soloNumeros === varComp.soloNumeros
+            );
+          }
+
+          // Capa 4: Coincidencia por Nombre de Proveedor (Respaldo)
           if (!datosBanco && proveedor) {
             const provLimpio = proveedor.toUpperCase().replace(/[^A-Z0-9]/g, '');
-            datosBanco = listaProveedoresPorNombre.find(item => {
+            datosBanco = listaMaestro.find(item => {
               const itemLimpio = item.proveedor.toUpperCase().replace(/[^A-Z0-9]/g, '');
-              return itemLimpio.includes(provLimpio) || provLimpio.includes(itemLimpio);
+              return itemLimpio.length > 4 && (itemLimpio.includes(provLimpio) || provLimpio.includes(itemLimpio));
             });
           }
 
