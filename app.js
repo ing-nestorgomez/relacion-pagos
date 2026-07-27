@@ -1,31 +1,21 @@
 let resultadosConsolidados = [];
 
-// 1. Limpieza Profunda de RIF / Cédula (Remueve ceros a la izquierda y caracteres extraños)
+// 1. Limpieza Profunda de RIF / Cédula
 function limpiarIdentificacion(ident) {
   if (!ident) return "";
   let str = String(ident).toUpperCase().trim();
-  
-  // Extraer Letra inicial (V, J, E, G, P, C)
   const letraMatch = str.match(/^[JVGEPC]/);
   const letra = letraMatch ? letraMatch[0] : "";
-
-  // Dejar solo los números
   let numeros = str.replace(/[^0-9]/g, '');
-
-  // Eliminar ceros a la izquierda tras la letra (ej: V-05990300 -> V5990300)
   numeros = numeros.replace(/^0+/, '');
-
   return letra + numeros;
 }
 
-// 2. Extraer "Base" de la cédula/RIF (sin el dígito verificador final si existe)
+// 2. Extraer "Base" de la cédula/RIF
 function obtenerBaseNum(limpio) {
-  if (!limpio) return { exacto: "", base: "", soloNumeros: "" };
-  
+  if (!limpio) return { exacto: "", baseConLetra: "", baseNumerica: "", soloNumeros: "" };
   const letra = limpio[0] && isNaN(limpio[0]) ? limpio[0] : "";
   const numeros = letra ? limpio.slice(1) : limpio;
-  
-  // Si tiene más de 7 dígitos, guardamos la base quitando el último dígito (dígito verificador)
   const base = numeros.length > 7 ? numeros.slice(0, -1) : numeros;
 
   return {
@@ -66,12 +56,20 @@ function leerExcel(inputElement) {
   });
 }
 
+// Obtener valor de celda seguro por coordenada (Ej: 'F28', 'N35')
+function obtenerValorCelda(sheet, celdaCoord) {
+  if (sheet && sheet[celdaCoord]) {
+    return sheet[celdaCoord].v !== undefined ? sheet[celdaCoord].v : sheet[celdaCoord].w;
+  }
+  return null;
+}
+
 // Evento Principal
 document.addEventListener('DOMContentLoaded', () => {
   const btnProcesar = document.getElementById('btnProcesar') || document.querySelector('button');
   
   btnProcesar?.addEventListener('click', async () => {
-    console.log("🚀 Procesando con capa avanzada de coincidencias...");
+    console.log("🚀 Procesando con extracción de celdas F28 y N35...");
 
     const inputs = document.querySelectorAll('input[type="file"]');
     const inputComprobante = inputs[0];
@@ -86,7 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
-      // 1. Cargar Maestro de Proveedores creando múltiples índices de búsqueda
+      // 1. Cargar Maestro de Proveedores
       const sheetBancos = bancosWB.Sheets[bancosWB.SheetNames[0]];
       const rowsBancos = XLSX.utils.sheet_to_json(sheetBancos, { header: 1 });
       
@@ -129,7 +127,13 @@ document.addEventListener('DOMContentLoaded', () => {
         let centroCosto = "ADMINISTRACION";
         let ppto = "SEM 29";
         let totalBs = 0;
-        let totalUsd = 0;
+
+        // --- Extracción directa de celdas F28 y N35 ---
+        let valF28 = obtenerValorCelda(sheet, 'F28');
+        let valN35 = obtenerValorCelda(sheet, 'N35');
+
+        let montoUsd = (typeof valF28 === 'number') ? valF28 : (parseFloat(valF28) || 0);
+        let semana = valN35 !== null ? String(valN35).trim() : "";
 
         let colConcepto = -1;
         let enBloqueConcepto = false;
@@ -161,12 +165,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (numeros.length > 0) totalBs = numeros[numeros.length - 1];
           }
 
-          // Extraer TOTAL GENERAL EN USD
-          if (filaTexto.toUpperCase().includes("TOTAL GENERAL EN USD") || filaTexto.toUpperCase().includes("USD $")) {
-            const numeros = row.filter(val => typeof val === 'number' && val > 0);
-            if (numeros.length > 0) totalUsd = numeros[numeros.length - 1];
-          }
-
           // Extraer CENTRO DE COSTO
           if (filaTexto.toUpperCase().includes("CENTRO DE COSTO:")) {
             const idx = row.findIndex(c => String(c).toUpperCase().includes("CENTRO DE COSTO:"));
@@ -174,14 +172,13 @@ document.addEventListener('DOMContentLoaded', () => {
             else if (idx !== -1 && row[idx + 2]) centroCosto = String(row[idx + 2]).trim();
           }
 
-          // Detectar columna de COMPRA / SERVICIO
+          // Detectar bloque COMPRA / SERVICIO
           if (filaTexto.toUpperCase().includes("COMPRA / SERVICIO")) {
             colConcepto = row.findIndex(c => String(c).toUpperCase().includes("COMPRA / SERVICIO"));
             enBloqueConcepto = true;
             return;
           }
 
-          // Capturar el contenido del cuadro COMPRA / SERVICIO
           if (enBloqueConcepto) {
             if (filaTexto.toUpperCase().includes("ELABORADO POR") || filaTexto.toUpperCase().includes("DATOS DE ANTICIPOS")) {
               enBloqueConcepto = false;
@@ -200,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
           }
 
-          // Extraer Presupuesto
+          // Respaldo para PPTO si N35 no venía
           row.forEach(cell => {
             const strCell = String(cell || '').trim();
             if (strCell.toUpperCase().startsWith("SEM")) ppto = strCell;
@@ -210,19 +207,18 @@ document.addEventListener('DOMContentLoaded', () => {
         let conceptoFinal = conceptoPartes.join(" ").trim();
         if (!conceptoFinal) conceptoFinal = "PAGO DE FACTURAS Y SERVICIOS";
 
-        // Realizar Búsqueda Multinivel en el Maestro
+        if (!semana) semana = ppto;
+
+        // Búsqueda en Maestro
         if (rif || proveedor || totalBs > 0) {
           const limpioComp = limpiarIdentificacion(rif);
           const varComp = obtenerBaseNum(limpioComp);
           
           let datosBanco = null;
 
-          // Capa 1: Coincidencia Exacta Limpia (ej: V5990300 === V5990300)
           if (varComp.exacto) {
             datosBanco = listaMaestro.find(item => item.limpio === varComp.exacto);
           }
-
-          // Capa 2: Coincidencia por Base (Ignorando dígito verificador extra, ej: V59903005 con V5990300)
           if (!datosBanco && varComp.baseConLetra) {
             datosBanco = listaMaestro.find(item => 
               item.baseConLetra === varComp.baseConLetra ||
@@ -230,16 +226,12 @@ document.addEventListener('DOMContentLoaded', () => {
               item.baseConLetra === varComp.exacto
             );
           }
-
-          // Capa 3: Coincidencia Numérica Pura
           if (!datosBanco && varComp.baseNumerica) {
             datosBanco = listaMaestro.find(item => 
               item.baseNumerica === varComp.baseNumerica ||
               item.soloNumeros === varComp.soloNumeros
             );
           }
-
-          // Capa 4: Coincidencia por Nombre de Proveedor (Respaldo)
           if (!datosBanco && proveedor) {
             const provLimpio = proveedor.toUpperCase().replace(/[^A-Z0-9]/g, '');
             datosBanco = listaMaestro.find(item => {
@@ -260,14 +252,32 @@ document.addEventListener('DOMContentLoaded', () => {
             anexoDirect: (datosBanco.banco && datosBanco.banco !== "NO ENCONTRADO") ? "SI" : "NO",
             centroCosto: centroCosto,
             montoBs: typeof totalBs === 'number' ? totalBs : parseFloat(totalBs) || 0,
-            montoUsd: typeof totalUsd === 'number' ? totalUsd : parseFloat(totalUsd) || 0,
-            ppto: ppto
+            montoUsd: montoUsd,
+            semana: semana
           });
         }
       });
 
-      // 3. Renderizar en la Tabla HTML
+      // 3. Renderizar Tabla HTML con 'Monto $' y 'Semana'
       const tbody = document.querySelector('tbody');
+      const thead = document.querySelector('thead');
+
+      if (thead) {
+        thead.innerHTML = `
+          <tr class="text-left text-slate-400 text-xs uppercase border-b border-slate-700 bg-slate-800/80">
+            <th class="py-3 px-3">Fecha</th>
+            <th class="py-3 px-3">RIF</th>
+            <th class="py-3 px-3">Proveedor</th>
+            <th class="py-3 px-3">Concepto</th>
+            <th class="py-3 px-3">Banco</th>
+            <th class="py-3 px-3">N° Cuenta</th>
+            <th class="py-3 px-3 text-right">Monto Bs.</th>
+            <th class="py-3 px-3 text-right">Monto $</th>
+            <th class="py-3 px-3 text-center">Semana</th>
+          </tr>
+        `;
+      }
+
       if (tbody) {
         tbody.innerHTML = resultadosConsolidados.map(item => `
           <tr class="border-b border-slate-700/50 hover:bg-slate-800/50 transition-colors">
@@ -278,15 +288,16 @@ document.addEventListener('DOMContentLoaded', () => {
             <td class="py-2.5 px-3 ${item.banco === 'NO ENCONTRADO' ? 'text-amber-400 font-bold' : 'text-emerald-400 font-medium'} text-xs">${item.banco}</td>
             <td class="py-2.5 px-3 font-mono text-slate-300 text-xs">${item.numCuenta}</td>
             <td class="py-2.5 px-3 font-bold text-slate-100 text-right text-xs">${item.montoBs.toLocaleString('es-VE', {minimumFractionDigits:2, maximumFractionDigits:2})} Bs.</td>
+            <td class="py-2.5 px-3 font-bold text-emerald-300 text-right text-xs">$ ${item.montoUsd.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+            <td class="py-2.5 px-3 text-center text-xs font-semibold text-sky-300">${item.semana}</td>
           </tr>
         `).join('');
       }
 
-      // Habilitar botón de descarga
       const btnExportar = document.getElementById('btnExportar');
       if (btnExportar) btnExportar.classList.remove('hidden');
 
-      alert(`✅ ¡Éxito! Se procesaron ${resultadosConsolidados.length} comprobantes/pestañas correctamente.`);
+      alert(`✅ ¡Éxito! Se procesaron ${resultadosConsolidados.length} comprobantes con Monto $ (F28) y Semana (N35).`);
 
     } catch (error) {
       console.error("❌ Error en procesamiento:", error);
@@ -294,7 +305,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Botón Exportar Excel Final
+  // Botón Exportar Excel
   document.getElementById('btnExportar')?.addEventListener('click', () => {
     if (!resultadosConsolidados.length) {
       alert("No hay datos cargados para exportar.");
@@ -302,7 +313,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const dataFinal = [
-      ["FECHA", "C.I./R.I.F.", "NOMBRE Y/O RAZON SOCIAL", "CONCEPTO", "BANCO", "Nro. CUENTA", "ANEXO DIRECT.", "CENTRO DE COSTO", "MONTO Bs.", "MONTO $", "PPTO N°"]
+      ["FECHA", "C.I./R.I.F.", "NOMBRE Y/O RAZON SOCIAL", "CONCEPTO", "BANCO", "Nro. CUENTA", "ANEXO DIRECT.", "CENTRO DE COSTO", "MONTO Bs.", "MONTO $", "SEMANA"]
     ];
 
     resultadosConsolidados.forEach(item => {
@@ -317,7 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
         item.centroCosto,
         item.montoBs,
         item.montoUsd,
-        item.ppto
+        item.semana
       ]);
     });
 
