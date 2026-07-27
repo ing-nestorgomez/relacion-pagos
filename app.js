@@ -1,8 +1,12 @@
-// app.js
-// Variable global para almacenar los datos cruzados que se exportarán a Excel
-let datosProcesadosParaExportar = [];
+let resultadosConsolidados = [];
 
-// Función auxiliar para leer un archivo Excel y retornar su libro de trabajo
+// Función para limpiar RIFs y hacerlos comparables (ej: "J-401800440" -> "J401800440")
+function normalizarRif(rif) {
+  if (!rif) return "";
+  return String(rif).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+// Función auxiliar para leer un archivo Excel
 function leerExcel(inputElement) {
   return new Promise((resolve, reject) => {
     const file = inputElement?.files?.[0];
@@ -27,7 +31,7 @@ function leerExcel(inputElement) {
 
 // 1. Botón Procesar y Cruzar Datos
 document.getElementById('btnProcesar')?.addEventListener('click', async () => {
-  console.log("🚀 Iniciando procesamiento...");
+  console.log("🚀 Iniciando procesamiento masivo...");
 
   const inputComprobante = document.getElementById('fileComprobante') || document.querySelectorAll('input[type="file"]')[0];
   const inputBancos = document.getElementById('fileBancos') || document.querySelectorAll('input[type="file"]')[1];
@@ -41,101 +45,155 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
       return;
     }
 
-    // Obtener hojas
-    const sheetComprobante = comprobanteWB.Sheets[comprobanteWB.SheetNames[0]];
+    // Indexar el Directorio de Proveedores por RIF Normalizado
     const sheetBancos = bancosWB.Sheets[bancosWB.SheetNames[0]];
-
-    const rowsComprobante = XLSX.utils.sheet_to_json(sheetComprobante, { header: 1 });
     const rowsBancos = XLSX.utils.sheet_to_json(sheetBancos, { header: 1 });
-
-    let proveedor = "";
-    let rif = "";
-    let totalPagar = 0;
-    let fecha = "23/7/2026";
-    let concepto = "MATERIAL DE FERRETERIA VARIAS O/C";
-
-    // Extraer datos de la cabecera
-    rowsComprobante.forEach((row) => {
-      if (!row || row.length === 0) return;
-      const col0 = String(row[0] || '').trim().toUpperCase();
-
-      if (col0 === "PROVEEDOR:") proveedor = row[1] || "";
-      if (col0 === "RIF:") rif = row[1] || "";
-      if (col0 === "TOTAL GENERAL") {
-        totalPagar = row[row.length - 1] || row[12] || 0;
+    
+    const mapaProveedores = {};
+    rowsBancos.slice(1).forEach(row => {
+      if (row && row[0]) {
+        const rifNorm = normalizarRif(row[0]);
+        mapaProveedores[rifNorm] = {
+          rifOriginal: row[0],
+          proveedor: row[1] || "",
+          banco: row[2] || "",
+          cuenta: row[3] || "",
+          tipo: row[4] || ""
+        };
       }
     });
 
-    // Buscar coincidencia en Maestro por RIF
-    const cuentaEncontrada = rowsBancos.find((r, idx) => idx > 0 && String(r[0]).trim() === String(rif).trim());
+    resultadosConsolidados = [];
 
-    const banco = cuentaEncontrada ? cuentaEncontrada[2] : "NO ENCONTRADO";
-    const numCuenta = cuentaEncontrada ? cuentaEncontrada[4] : "NO ENCONTRADO";
+    // Recorrer TODAS las hojas del Libro de Comprobantes
+    comprobanteWB.SheetNames.forEach(sheetName => {
+      const sheet = comprobanteWB.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-    // Formatear monto para visualización
-    const montoFormateado = typeof totalPagar === 'number' 
-      ? totalPagar.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-      : totalPagar;
+      let proveedor = "";
+      let rif = "";
+      let fecha = "";
+      let concepto = "";
+      let centroCosto = "";
+      let ppto = "";
+      let totalBs = 0;
+      let totalUsd = 0;
 
-    // Renderizar en la tabla
+      rows.forEach(row => {
+        if (!row || row.length === 0) return;
+
+        const col1 = String(row[1] || '').trim().toUpperCase();
+        const col0 = String(row[0] || '').trim().toUpperCase();
+
+        if (col1 === "PROVEEDOR:") proveedor = row[3] || row[2] || "";
+        if (col1 === "RIF:") rif = row[3] || row[2] || "";
+        if (col1 === "FECHA:") fecha = row[3] || "";
+        if (col1 === "CENTRO DE COSTO:") centroCosto = row[3] || "";
+        if (col1 === "CONCEPTO DEL PAGO:") concepto = row[6] || row[5] || "";
+
+        if (col1 === "TOTAL GENERAL") {
+          totalBs = row[row.length - 2] || row[13] || 0;
+        }
+        if (col1 === "TOTAL GENERAL EN USD $ (B.C.V)") {
+          totalUsd = row[row.length - 2] || row[13] || 0;
+        }
+
+        // Buscar Presupuesto (PPTO N°)
+        row.forEach(cell => {
+          if (cell && String(cell).includes("SEM")) {
+            ppto = cell;
+          }
+        });
+      });
+
+      if (rif || proveedor) {
+        const rifNorm = normalizarRif(rif);
+        const datosBanco = mapaProveedores[rifNorm] || {};
+
+        resultadosConsolidados.push({
+          fecha: fecha || new Date().toLocaleDateString('es-VE'),
+          rif: rif || datosBanco.rifOriginal || "N/A",
+          proveedor: proveedor || datosBanco.proveedor || "N/A",
+          concepto: concepto || "PAGO DE FACTURAS Y SERVICIOS",
+          banco: datosBanco.banco || "NO ENCONTRADO",
+          numCuenta: datosBanco.cuenta || "NO ENCONTRADO",
+          anexoDirect: datosBanco.banco ? "SI" : "NO",
+          centroCosto: centroCosto || "ADMINISTRACION",
+          montoBs: typeof totalBs === 'number' ? totalBs : parseFloat(totalBs) || 0,
+          montoUsd: typeof totalUsd === 'number' ? totalUsd : parseFloat(totalUsd) || 0,
+          ppto: ppto || "SEM 29"
+        });
+      }
+    });
+
+    // Renderizar Resultados en la Tabla Vista Previa
     const tbody = document.querySelector('tbody');
     if (tbody) {
-      tbody.innerHTML = `
+      tbody.innerHTML = resultadosConsolidados.map(item => `
         <tr class="border-b border-slate-700/50 hover:bg-slate-800/50 transition-colors">
-          <td class="py-3.5 px-4 text-slate-300">${fecha}</td>
-          <td class="py-3.5 px-4 font-mono text-sky-400 font-semibold">${rif || 'N/A'}</td>
-          <td class="py-3.5 px-4 font-medium text-slate-100">${proveedor || 'N/A'}</td>
-          <td class="py-3.5 px-4 text-slate-300">${concepto}</td>
-          <td class="py-3.5 px-4 text-emerald-400 font-medium">${banco}</td>
-          <td class="py-3.5 px-4 font-mono text-slate-300">${numCuenta}</td>
-          <td class="py-3.5 px-4 font-bold text-slate-100 text-right">${montoFormateado} Bs.</td>
+          <td class="py-2.5 px-3 text-slate-300 text-xs">${item.fecha}</td>
+          <td class="py-2.5 px-3 font-mono text-sky-400 font-semibold text-xs">${item.rif}</td>
+          <td class="py-2.5 px-3 font-medium text-slate-100 text-xs">${item.proveedor}</td>
+          <td class="py-2.5 px-3 text-slate-300 text-xs truncate max-w-xs">${item.concepto}</td>
+          <td class="py-2.5 px-3 text-emerald-400 font-medium text-xs">${item.banco}</td>
+          <td class="py-2.5 px-3 font-mono text-slate-300 text-xs">${item.numCuenta}</td>
+          <td class="py-2.5 px-3 font-bold text-slate-100 text-right text-xs">${item.montoBs.toLocaleString('es-VE', {minimumFractionDigits:2})} Bs.</td>
         </tr>
-      `;
+      `).join('');
     }
 
-    // Guardar los datos limpios para la exportación
-    datosProcesadosParaExportar = [
-      ["FECHA", "RIF", "PROVEEDOR", "CONCEPTO", "BANCO", "N° CUENTA", "MONTO BS."],
-      [fecha, rif, proveedor, concepto, banco, numCuenta, totalPagar]
-    ];
-
-    // Mostrar el botón de exportar si estaba oculto
+    // Mostrar Botón de Exportar
     const btnExportar = document.getElementById('btnExportar');
     if (btnExportar) btnExportar.classList.remove('hidden');
 
-    console.log("✨ Proceso completado con éxito.");
+    alert(`✅ ¡Éxito! Se procesaron ${resultadosConsolidados.length} comprobantes/pestañas correctamente.`);
 
   } catch (error) {
-    console.error("❌ Error durante el procesamiento:", error);
-    alert("Ocurrió un error al procesar los datos. Revisa la consola.");
+    console.error("❌ Error en procesamiento:", error);
+    alert("Ocurrió un error al procesar los archivos. Consulta la consola.");
   }
 });
 
-// 2. Botón Descargar Excel Final
+// 2. Botón Descargar Excel Final (Estructura idéntica a Solicitud de Pagos)
 document.getElementById('btnExportar')?.addEventListener('click', () => {
-  if (!datosProcesadosParaExportar.length) {
-    alert("No hay datos para exportar. Por favor procesa los archivos primero.");
+  if (!resultadosConsolidados.length) {
+    alert("No hay datos cargados para exportar.");
     return;
   }
 
-  // Crear libro y hoja de cálculo
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(datosProcesadosParaExportar);
-
-  // Definir anchos de columnas para que el Excel descargado quede ordenado
-  ws['!cols'] = [
-    { wch: 12 }, // FECHA
-    { wch: 16 }, // RIF
-    { wch: 35 }, // PROVEEDOR
-    { wch: 40 }, // CONCEPTO
-    { wch: 22 }, // BANCO
-    { wch: 28 }, // N° CUENTA
-    { wch: 18 }  // MONTO BS.
+  // Encabezados exactamente como en SOLICITUD DE PAGOS
+  const dataFinal = [
+    ["FECHA", "C.I./R.I.F.", "NOMBRE Y/O RAZON SOCIAL", "CONCEPTO", "BANCO", "Nro. CUENTA", "ANEXO DIRECT.", "CENTRO DE COSTO", "MONTO Bs.", "MONTO $", "PPTO N°"]
   ];
 
-  XLSX.utils.book_append_sheet(wb, ws, "Relacion_de_Pagos");
+  resultadosConsolidados.forEach(item => {
+    dataFinal.push([
+      item.fecha,
+      item.rif,
+      item.proveedor,
+      item.concepto,
+      item.banco,
+      item.numCuenta,
+      item.anexoDirect,
+      item.centroCosto,
+      item.montoBs,
+      item.montoUsd,
+      item.ppto
+    ]);
+  });
 
-  // Descargar el archivo Excel
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(dataFinal);
+
+  // Anchos de columnas
+  ws['!cols'] = [
+    { wch: 12 }, { wch: 16 }, { wch: 35 }, { wch: 40 },
+    { wch: 18 }, { wch: 26 }, { wch: 14 }, { wch: 18 },
+    { wch: 18 }, { wch: 14 }, { wch: 12 }
+  ];
+
+  XLSX.utils.book_append_sheet(wb, ws, "Solicitud_de_Pagos");
+
   const fechaHoy = new Date().toISOString().split('T')[0];
-  XLSX.writeFile(wb, `Relacion_Pagos_Final_${fechaHoy}.xlsx`);
+  XLSX.writeFile(wb, `SOLICITUD_DE_PAGOS_PROCESADA_${fechaHoy}.xlsx`);
 });
