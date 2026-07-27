@@ -9,9 +9,10 @@
   <!-- SheetJS para leer y escribir Excel -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
-<body class="bg-slate-900 text-slate-100 min-h-screen p-6 font-sans">
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 md:p-6 font-sans">
 
-  <div class="max-w-5xl mx-auto space-y-6">
+  <!-- CAMBIO CLAVE AQUÍ: w-full max-w-none en lugar de max-w-5xl -->
+  <div class="w-full max-w-none space-y-6">
     <!-- Header -->
     <header class="border-b border-slate-700 pb-4">
       <h1 class="text-2xl font-bold text-sky-400">Generador de Relación de Pagos</h1>
@@ -36,14 +37,14 @@
     </div>
 
     <!-- Botones de Acción -->
-<div class="flex justify-end gap-3">
-  <button id="btnProcesar" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-sky-500/20">
-    Procesar y Cruzar Datos
-  </button>
-  <button id="btnExportar" class="hidden bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-emerald-500/20">
-    📥 Descargar Excel Final
-  </button>
-</div>
+    <div class="flex justify-end gap-3">
+      <button id="btnProcesar" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-sky-500/20">
+        Procesar y Cruzar Datos
+      </button>
+      <button id="btnExportar" class="hidden bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-emerald-500/20">
+        📥 Descargar Excel Final
+      </button>
+    </div>
 
     <!-- Vista previa -->
     <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 overflow-x-auto">
@@ -51,18 +52,20 @@
       <table class="w-full text-left text-xs text-slate-300">
         <thead class="bg-slate-900 text-slate-400 uppercase">
           <tr>
-            <th class="p-2">Fecha</th>
-            <th class="p-2">RIF</th>
-            <th class="p-2">Proveedor</th>
-            <th class="p-2">Concepto</th>
-            <th class="p-2">Banco</th>
-            <th class="p-2">N° Cuenta</th>
-            <th class="p-2">Monto Bs.</th>
+            <th class="p-2.5">Fecha</th>
+            <th class="p-2.5">RIF</th>
+            <th class="p-2.5">Proveedor</th>
+            <th class="p-2.5">Concepto</th>
+            <th class="p-2.5">Banco</th>
+            <th class="p-2.5">N° Cuenta</th>
+            <th class="p-2.5 text-right">Monto Bs.</th>
+            <th class="p-2.5 text-right">Monto $</th>
+            <th class="p-2.5 text-center">Semana</th>
           </tr>
         </thead>
         <tbody id="tablaVistaPrevia">
           <tr>
-            <td colspan="7" class="p-4 text-center text-slate-500">Carga ambos archivos y presiona "Procesar"</td>
+            <td colspan="9" class="p-4 text-center text-slate-500">Carga ambos archivos y presiona "Procesar"</td>
           </tr>
         </tbody>
       </table>
