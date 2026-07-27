@@ -1,12 +1,22 @@
 let resultadosConsolidados = [];
 
-// Función para limpiar RIFs y hacerlos comparables (ej: "J-401800440" -> "J401800440")
+// Función para limpiar RIFs (ej: "J-401800440 " -> "J401800440")
 function normalizarRif(rif) {
   if (!rif) return "";
   return String(rif).toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
-// Función auxiliar para leer un archivo Excel
+// Función para formatear fechas a DD/MM/YYYY
+function formatearFecha(fechaRaw) {
+  if (!fechaRaw) return "23/07/2026";
+  if (typeof fechaRaw === 'string' && fechaRaw.includes('-')) {
+    const partes = fechaRaw.split('T')[0].split('-');
+    if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
+  }
+  return String(fechaRaw);
+}
+
+// Función auxiliar para leer archivos Excel
 function leerExcel(inputElement) {
   return new Promise((resolve, reject) => {
     const file = inputElement?.files?.[0];
@@ -31,7 +41,7 @@ function leerExcel(inputElement) {
 
 // 1. Botón Procesar y Cruzar Datos
 document.getElementById('btnProcesar')?.addEventListener('click', async () => {
-  console.log("🚀 Iniciando procesamiento masivo...");
+  console.log("🚀 Iniciando procesamiento de 49 pestañas...");
 
   const inputComprobante = document.getElementById('fileComprobante') || document.querySelectorAll('input[type="file"]')[0];
   const inputBancos = document.getElementById('fileBancos') || document.querySelectorAll('input[type="file"]')[1];
@@ -45,7 +55,7 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
       return;
     }
 
-    // Indexar el Directorio de Proveedores por RIF Normalizado
+    // 1. Crear Mapa de Proveedores desde el Directorio (Hoja 1)
     const sheetBancos = bancosWB.Sheets[bancosWB.SheetNames[0]];
     const rowsBancos = XLSX.utils.sheet_to_json(sheetBancos, { header: 1 });
     
@@ -54,18 +64,18 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
       if (row && row[0]) {
         const rifNorm = normalizarRif(row[0]);
         mapaProveedores[rifNorm] = {
-          rifOriginal: row[0],
-          proveedor: row[1] || "",
-          banco: row[2] || "",
-          cuenta: row[3] || "",
-          tipo: row[4] || ""
+          rifOriginal: String(row[0]).trim(),
+          proveedor: row[1] ? String(row[1]).trim() : "",
+          banco: row[2] ? String(row[2]).trim() : "",
+          cuenta: row[3] ? String(row[3]).trim() : "",
+          tipo: row[4] ? String(row[4]).trim() : ""
         };
       }
     });
 
     resultadosConsolidados = [];
 
-    // Recorrer TODAS las hojas del Libro de Comprobantes
+    // 2. Iterar por TODAS las pestañas del Comprobante
     comprobanteWB.SheetNames.forEach(sheetName => {
       const sheet = comprobanteWB.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
@@ -75,43 +85,55 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
       let fecha = "";
       let concepto = "";
       let centroCosto = "";
-      let ppto = "";
+      let ppto = "SEM 29";
       let totalBs = 0;
       let totalUsd = 0;
 
       rows.forEach(row => {
         if (!row || row.length === 0) return;
 
+        // Convertir cada celda a string limpia para evaluar
         const col1 = String(row[1] || '').trim().toUpperCase();
-        const col0 = String(row[0] || '').trim().toUpperCase();
 
-        if (col1 === "PROVEEDOR:") proveedor = row[3] || row[2] || "";
-        if (col1 === "RIF:") rif = row[3] || row[2] || "";
-        if (col1 === "FECHA:") fecha = row[3] || "";
-        if (col1 === "CENTRO DE COSTO:") centroCosto = row[3] || "";
-        if (col1 === "CONCEPTO DEL PAGO:") concepto = row[6] || row[5] || "";
+        if (col1.includes("PROVEEDOR")) proveedor = String(row[3] || row[2] || '').trim();
+        if (col1.includes("RIF")) rif = String(row[3] || row[2] || '').trim();
 
-        if (col1 === "TOTAL GENERAL") {
-          totalBs = row[row.length - 2] || row[13] || 0;
-        }
-        if (col1 === "TOTAL GENERAL EN USD $ (B.C.V)") {
-          totalUsd = row[row.length - 2] || row[13] || 0;
+        if (col1.includes("TOTAL GENERAL") && !col1.includes("USD")) {
+          totalBs = row[13] || row[10] || row[row.length - 1] || 0;
         }
 
-        // Buscar Presupuesto (PPTO N°)
+        if (col1.includes("TOTAL GENERAL EN USD")) {
+          totalUsd = row[13] || row[10] || row[row.length - 1] || 0;
+        }
+
+        if (col1.includes("CENTRO DE COSTO")) {
+          centroCosto = String(row[3] || '').trim();
+        }
+
+        // Extraer concepto (ubicar en fila 31 o por etiqueta)
+        if (col1.includes("FORMA DE PAGO")) {
+          concepto = String(row[6] || row[5] || '').trim();
+        }
+
+        // Fecha de elaboración
+        if (col1.includes("FECHA:")) {
+          fecha = formatearFecha(row[3]);
+        }
+
+        // Buscar Presupuesto
         row.forEach(cell => {
-          if (cell && String(cell).includes("SEM")) {
-            ppto = cell;
-          }
+          const strCell = String(cell || '').trim();
+          if (strCell.startsWith("SEM")) ppto = strCell;
         });
       });
 
+      // Si encontramos RIF o Proveedor en la pestaña, procesamos la fila
       if (rif || proveedor) {
         const rifNorm = normalizarRif(rif);
         const datosBanco = mapaProveedores[rifNorm] || {};
 
         resultadosConsolidados.push({
-          fecha: fecha || new Date().toLocaleDateString('es-VE'),
+          fecha: fecha || "23/07/2026",
           rif: rif || datosBanco.rifOriginal || "N/A",
           proveedor: proveedor || datosBanco.proveedor || "N/A",
           concepto: concepto || "PAGO DE FACTURAS Y SERVICIOS",
@@ -121,12 +143,12 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
           centroCosto: centroCosto || "ADMINISTRACION",
           montoBs: typeof totalBs === 'number' ? totalBs : parseFloat(totalBs) || 0,
           montoUsd: typeof totalUsd === 'number' ? totalUsd : parseFloat(totalUsd) || 0,
-          ppto: ppto || "SEM 29"
+          ppto: ppto
         });
       }
     });
 
-    // Renderizar Resultados en la Tabla Vista Previa
+    // 3. Renderizar resultados en la Vista Previa
     const tbody = document.querySelector('tbody');
     if (tbody) {
       tbody.innerHTML = resultadosConsolidados.map(item => `
@@ -142,7 +164,7 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
       `).join('');
     }
 
-    // Mostrar Botón de Exportar
+    // Mostrar botón de exportación
     const btnExportar = document.getElementById('btnExportar');
     if (btnExportar) btnExportar.classList.remove('hidden');
 
@@ -154,14 +176,13 @@ document.getElementById('btnProcesar')?.addEventListener('click', async () => {
   }
 });
 
-// 2. Botón Descargar Excel Final (Estructura idéntica a Solicitud de Pagos)
+// 2. Botón Descargar Excel Final
 document.getElementById('btnExportar')?.addEventListener('click', () => {
   if (!resultadosConsolidados.length) {
     alert("No hay datos cargados para exportar.");
     return;
   }
 
-  // Encabezados exactamente como en SOLICITUD DE PAGOS
   const dataFinal = [
     ["FECHA", "C.I./R.I.F.", "NOMBRE Y/O RAZON SOCIAL", "CONCEPTO", "BANCO", "Nro. CUENTA", "ANEXO DIRECT.", "CENTRO DE COSTO", "MONTO Bs.", "MONTO $", "PPTO N°"]
   ];
@@ -185,7 +206,6 @@ document.getElementById('btnExportar')?.addEventListener('click', () => {
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(dataFinal);
 
-  // Anchos de columnas
   ws['!cols'] = [
     { wch: 12 }, { wch: 16 }, { wch: 35 }, { wch: 40 },
     { wch: 18 }, { wch: 26 }, { wch: 14 }, { wch: 18 },
