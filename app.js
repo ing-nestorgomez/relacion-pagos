@@ -1,5 +1,37 @@
 let resultadosConsolidados = [];
 
+// Formatear fechas de Excel a DD/MM/YYYY
+function formatearFechaExcel(val) {
+  if (!val) return "23/07/2026";
+  
+  if (val instanceof Date) {
+    const dia = String(val.getDate()).padStart(2, '0');
+    const mes = String(val.getMonth() + 1).padStart(2, '0');
+    const anio = val.getFullYear();
+    return `${dia}/${mes}/${anio}`;
+  }
+
+  if (typeof val === 'number') {
+    const fechaObj = XLSX.SSF.parse_date_code(val);
+    if (fechaObj) {
+      const dia = String(fechaObj.d).padStart(2, '0');
+      const mes = String(fechaObj.m).padStart(2, '0');
+      const anio = fechaObj.y;
+      return `${dia}/${mes}/${anio}`;
+    }
+  }
+
+  let str = String(val).trim();
+  if (str.includes('-') && str.length >= 10) {
+    const partes = str.split('T')[0].split('-');
+    if (partes.length === 3 && partes[0].length === 4) {
+      return `${partes[2].padStart(2, '0')}/${partes[1].padStart(2, '0')}/${partes[0]}`;
+    }
+  }
+
+  return str;
+}
+
 // 1. Limpieza Profunda de RIF / Cédula
 function limpiarIdentificacion(ident) {
   if (!ident) return "";
@@ -33,7 +65,7 @@ function limpiarNumeroCuenta(cuenta) {
   return limpia.length > 0 ? limpia : String(cuenta).trim();
 }
 
-// Leer Excel
+// Leer Excel (con soporte para fechas)
 function leerExcel(inputElement) {
   return new Promise((resolve, reject) => {
     const file = inputElement?.files?.[0];
@@ -45,7 +77,7 @@ function leerExcel(inputElement) {
     reader.onload = (evt) => {
       try {
         const data = new Uint8Array(evt.target.result);
-        const wb = XLSX.read(data, { type: 'array' });
+        const wb = XLSX.read(data, { type: 'array', cellDates: true });
         resolve(wb);
       } catch (err) {
         reject(err);
@@ -56,7 +88,7 @@ function leerExcel(inputElement) {
   });
 }
 
-// Obtener valor de celda seguro por coordenada (Ej: 'F28', 'N35')
+// Obtener valor de celda seguro por coordenada (Ej: 'B10', 'F28', 'N35')
 function obtenerValorCelda(sheet, celdaCoord) {
   if (sheet && sheet[celdaCoord]) {
     return sheet[celdaCoord].v !== undefined ? sheet[celdaCoord].v : sheet[celdaCoord].w;
@@ -69,7 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnProcesar = document.getElementById('btnProcesar') || document.querySelector('button');
   
   btnProcesar?.addEventListener('click', async () => {
-    console.log("🚀 Procesando con extracción segura de Monto Bs, USD y Semana...");
+    console.log("🚀 Procesando con extracción segura de Fecha (B10), Monto Bs, USD y Semana...");
 
     const inputs = document.querySelectorAll('input[type="file"]');
     const inputComprobante = inputs[0];
@@ -122,16 +154,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let proveedor = "";
         let rif = "";
-        let fecha = "23/07/2026";
         let conceptoPartes = [];
         let centroCosto = "ADMINISTRACION";
         let ppto = "SEM 29";
         let totalBs = 0;
 
-        // --- Extracción directa de celdas F28 y N35 ---
+        // --- Extracción directa de FECHA (B10), USD (F28) y Semana (N35) ---
+        let valB10 = obtenerValorCelda(sheet, 'B10');
         let valF28 = obtenerValorCelda(sheet, 'F28');
         let valN35 = obtenerValorCelda(sheet, 'N35');
 
+        let fecha = formatearFechaExcel(valB10);
         let montoUsd = (typeof valF28 === 'number') ? valF28 : (parseFloat(valF28) || 0);
         let semana = valN35 !== null ? String(valN35).trim() : "";
 
@@ -177,7 +210,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
           // Extraer TOTAL GENERAL en Bs. (Búsqueda acotada entre F y N si las celdas fijas fallaron)
           if (totalBs === 0 && filaTexto.toUpperCase().includes("TOTAL GENERAL") && !filaTexto.toUpperCase().includes("USD")) {
-            for (let colIdx = 13; colIdx >= 5; colIdx--) { // Delimitado de Col N (13) a Col F (5)
+            for (let colIdx = 13; colIdx >= 5; colIdx--) {
               const val = row[colIdx];
               if (typeof val === 'number' && val > 10) {
                 totalBs = val;
@@ -279,7 +312,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
 
-      // 3. Renderizar Tabla HTML con 'Monto $' y 'Semana'
+      // 3. Renderizar Tabla HTML
       const tbody = document.querySelector('tbody');
       const thead = document.querySelector('thead');
 
