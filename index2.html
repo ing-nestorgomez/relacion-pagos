@@ -23,14 +23,14 @@
         </div>
         <p class="text-slate-400 text-sm mt-1">Procesamiento local seguro y cruce automático de datos.</p>
       </div>
-      <!-- Enlace para volver a V1 fácilmente -->
+      <!-- Enlace para volver a V1 -->
       <a href="index.html" class="text-xs text-slate-400 hover:text-sky-400 transition-colors underline">
         ← Ir a Versión Standard (V1)
       </a>
     </header>
 
-    <!-- Inputs de Archivos -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- Inputs de Archivos (3 Columnas en pantallas medianas) -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <!-- Archivo 1: Comprobantes -->
       <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
         <label class="block text-sm font-semibold mb-2 text-slate-300">1. Libro de Comprobantes (Excel)</label>
@@ -43,6 +43,13 @@
         <label class="block text-sm font-semibold mb-2 text-slate-300">2. Maestro de Proveedores / Bancos</label>
         <input type="file" id="fileBancos" accept=".xlsx, .xls" 
                class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"/>
+      </div>
+
+      <!-- Archivo 3: Archivo de Presupuesto / Nuevo Archivo -->
+      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
+        <label class="block text-sm font-semibold mb-2 text-slate-300">3. Archivo de Presupuesto (V2)</label>
+        <input type="file" id="filePresupuesto" accept=".xlsx, .xls" 
+               class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer"/>
       </div>
     </div>
 
@@ -75,7 +82,7 @@
         </thead>
         <tbody id="tablaVistaPrevia">
           <tr>
-            <td colspan="9" class="p-4 text-center text-slate-500">Carga ambos archivos y presiona "Procesar"</td>
+            <td colspan="9" class="p-4 text-center text-slate-500">Carga los 3 archivos y presiona "Procesar"</td>
           </tr>
         </tbody>
       </table>
@@ -84,7 +91,6 @@
 
   <!-- Scripts -->
   <script src="config.js"></script>
-  <!-- APUNTA A app2.js -->
   <script src="app2.js"></script>
 </body>
 </html>
