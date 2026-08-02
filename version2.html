@@ -29,8 +29,8 @@
       </a>
     </header>
 
-    <!-- Inputs de Archivos (3 Columnas en pantallas medianas) -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <!-- Inputs de Archivos (2 Columnas) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <!-- Archivo 1: Comprobantes -->
       <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
         <label class="block text-sm font-semibold mb-2 text-slate-300">1. Libro de Comprobantes (Excel)</label>
@@ -44,22 +44,23 @@
         <input type="file" id="fileBancos" accept=".xlsx, .xls" 
                class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"/>
       </div>
-
-      <!-- Archivo 3: Archivo de Presupuesto / Nuevo Archivo -->
-      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
-        <label class="block text-sm font-semibold mb-2 text-slate-300">3. Archivo de Presupuesto (V2)</label>
-        <input type="file" id="filePresupuesto" accept=".xlsx, .xls" 
-               class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer"/>
-      </div>
     </div>
 
     <!-- Botones de Acción -->
-    <div class="flex justify-end gap-3">
+    <div class="flex flex-wrap justify-end gap-3">
+      <!-- Botón Procesar -->
       <button id="btnProcesar" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-sky-500/20">
         Procesar y Cruzar Datos (V2)
       </button>
-      <button id="btnExportar" class="hidden bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-emerald-500/20">
-        📥 Descargar Excel Final
+
+      <!-- Botón Exportar 1 (Formato Solicitud de Pagos) -->
+      <button id="btnExportar" class="hidden bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-emerald-600/20">
+        📥 Descargar Solicitud de Pagos
+      </button>
+
+      <!-- Botón Exportar 2 (Formato Procuras y Servicios) -->
+      <button id="btnExportarV2" class="hidden bg-purple-600 hover:bg-purple-500 text-white font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-purple-600/20">
+        📊 Descargar Procuras y Servicios
       </button>
     </div>
 
@@ -82,7 +83,7 @@
         </thead>
         <tbody id="tablaVistaPrevia">
           <tr>
-            <td colspan="9" class="p-4 text-center text-slate-500">Carga los 3 archivos y presiona "Procesar"</td>
+            <td colspan="9" class="p-4 text-center text-slate-500">Carga los 2 archivos y presiona "Procesar"</td>
           </tr>
         </tbody>
       </table>
