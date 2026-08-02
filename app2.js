@@ -1,4 +1,5 @@
 let resultadosConsolidadosV2 = [];
+let plantillaPresupuestoWB = null; // Guarda el libro del 3er archivo para usarlo como plantilla
 
 // Formatear fechas de Excel a DD/MM/YYYY
 function formatearFechaExcel(val) {
@@ -103,16 +104,17 @@ document.addEventListener('DOMContentLoaded', () => {
   btnProcesar?.addEventListener('click', async () => {
     console.log("🚀 [SISTEMA V2] Procesando datos e integrando nuevo flujo...");
 
-    const inputs = document.querySelectorAll('input[type="file"]');
-    const inputComprobante = inputs[0];
-    const inputBancos = inputs[1];
+    const inputComprobante = document.getElementById('fileComprobantes');
+    const inputBancos = document.getElementById('fileBancos');
+    const inputPresupuesto = document.getElementById('filePresupuesto');
 
     try {
       const comprobanteWB = await leerExcel(inputComprobante);
       const bancosWB = await leerExcel(inputBancos);
+      plantillaPresupuestoWB = await leerExcel(inputPresupuesto); // Guardamos la plantilla base V2
 
-      if (!comprobanteWB || !bancosWB) {
-        alert("⚠️ Por favor, selecciona y carga ambos archivos Excel antes de procesar.");
+      if (!comprobanteWB || !bancosWB || !plantillaPresupuestoWB) {
+        alert("⚠️ Por favor, selecciona y carga los 3 archivos Excel (Comprobantes, Maestro y Presupuesto V2) antes de procesar.");
         return;
       }
 
@@ -351,7 +353,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const btnExportar = document.getElementById('btnExportar');
       if (btnExportar) btnExportar.classList.remove('hidden');
 
-      alert(`✅ [V2] ¡Éxito! Se procesaron ${resultadosConsolidadosV2.length} comprobantes.`);
+      alert(`✅ [V2] ¡Éxito! Se procesaron ${resultadosConsolidadosV2.length} comprobantes y la plantilla de Presupuesto está lista.`);
 
     } catch (error) {
       console.error("❌ Error en procesamiento V2:", error);
@@ -359,45 +361,47 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Botón Exportar Excel V2
+  // Botón Exportar Excel V2 - Inyecta sobre el 3er archivo (Presupuesto V2)
   document.getElementById('btnExportar')?.addEventListener('click', () => {
     if (!resultadosConsolidadosV2.length) {
       alert("No hay datos cargados para exportar.");
       return;
     }
 
-    const dataFinal = [
-      ["FECHA", "C.I./R.I.F.", "NOMBRE Y/O RAZON SOCIAL", "CONCEPTO", "BANCO", "Nro. CUENTA", "ANEXO DIRECT.", "CENTRO DE COSTO", "MONTO Bs.", "MONTO $", "SEMANA"]
-    ];
+    if (!plantillaPresupuestoWB) {
+      alert("⚠️ No se encuentra cargada la plantilla de Presupuesto V2.");
+      return;
+    }
 
-    resultadosConsolidadosV2.forEach(item => {
-      dataFinal.push([
-        item.fecha,
-        item.rif,
-        item.proveedor,
-        item.concepto,
-        item.banco,
-        item.numCuenta,
-        item.anexoDirect,
-        item.centroCosto,
-        item.montoBs,
-        item.montoUsd,
-        item.semana
-      ]);
+    // Tomamos la primera pestaña del libro de Presupuesto cargado
+    const sheetName = plantillaPresupuestoWB.SheetNames[0];
+    const ws = plantillaPresupuestoWB.Sheets[sheetName];
+
+    // Fila inicial donde comenzaremos a inyectar (A2 / Fila 2 de Excel, índice base 0 = 1)
+    let filaInicio = 2; 
+
+    resultadosConsolidadosV2.forEach((item, idx) => {
+      const numFila = filaInicio + idx;
+
+      // Inserción celda a celda en las columnas correspondientes (A hasta K)
+      ws[`A${numFila}`] = { t: 's', v: item.fecha };
+      ws[`B${numFila}`] = { t: 's', v: item.rif };
+      ws[`C${numFila}`] = { t: 's', v: item.proveedor };
+      ws[`D${numFila}`] = { t: 's', v: item.concepto };
+      ws[`E${numFila}`] = { t: 's', v: item.banco };
+      ws[`F${numFila}`] = { t: 's', v: item.numCuenta };
+      ws[`G${numFila}`] = { t: 's', v: item.anexoDirect };
+      ws[`H${numFila}`] = { t: 's', v: item.centroCosto };
+      ws[`I${numFila}`] = { t: 'n', v: item.montoBs, z: '#,##0.00' };
+      ws[`J${numFila}`] = { t: 'n', v: item.montoUsd, z: '#,##0.00' };
+      ws[`K${numFila}`] = { t: 's', v: item.semana };
     });
 
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(dataFinal);
-
-    ws['!cols'] = [
-      { wch: 12 }, { wch: 16 }, { wch: 35 }, { wch: 50 },
-      { wch: 18 }, { wch: 26 }, { wch: 14 }, { wch: 18 },
-      { wch: 18 }, { wch: 14 }, { wch: 12 }
-    ];
-
-    XLSX.utils.book_append_sheet(wb, ws, "Solicitud_de_Pagos_V2");
+    // Actualizar el rango de celdas activas en la hoja (!ref)
+    const totalFilas = filaInicio + resultadosConsolidadosV2.length - 1;
+    ws['!ref'] = `A1:K${Math.max(totalFilas, 100)}`;
 
     const fechaHoy = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(wb, `SOLICITUD_DE_PAGOS_V2_${fechaHoy}.xlsx`);
+    XLSX.writeFile(plantillaPresupuestoWB, `PRESUPUESTO_CONSOLIDADO_V2_${fechaHoy}.xlsx`);
   });
 });
