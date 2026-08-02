@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relación de Pagos V2 - Generador</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- SheetJS para leer y escribir Excel -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen p-4 md:p-6 font-sans">
+
+  <div class="w-full max-w-none space-y-6">
+    <!-- Header V2 -->
+    <header class="border-b border-slate-700 pb-4 flex items-center justify-between">
+      <div>
+        <div class="flex items-center gap-3">
+          <h1 class="text-2xl font-bold text-sky-400">Generador de Relación de Pagos</h1>
+          <span class="bg-sky-500/10 text-sky-400 border border-sky-500/30 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            V2 Paralelo
+          </span>
+        </div>
+        <p class="text-slate-400 text-sm mt-1">Procesamiento local seguro y cruce automático de datos.</p>
+      </div>
+      <!-- Enlace para volver a V1 fácilmente -->
+      <a href="index.html" class="text-xs text-slate-400 hover:text-sky-400 transition-colors underline">
+        ← Ir a Versión Standard (V1)
+      </a>
+    </header>
+
+    <!-- Inputs de Archivos -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- Archivo 1: Comprobantes -->
+      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
+        <label class="block text-sm font-semibold mb-2 text-slate-300">1. Libro de Comprobantes (Excel)</label>
+        <input type="file" id="fileComprobantes" accept=".xlsx, .xls" 
+               class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-sky-600 file:text-white hover:file:bg-sky-500 cursor-pointer"/>
+      </div>
+
+      <!-- Archivo 2: Maestro Proveedores -->
+      <div class="bg-slate-800 p-4 rounded-xl border border-slate-700">
+        <label class="block text-sm font-semibold mb-2 text-slate-300">2. Maestro de Proveedores / Bancos</label>
+        <input type="file" id="fileBancos" accept=".xlsx, .xls" 
+               class="block w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-500 cursor-pointer"/>
+      </div>
+    </div>
+
+    <!-- Botones de Acción -->
+    <div class="flex justify-end gap-3">
+      <button id="btnProcesar" class="bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-sky-500/20">
+        Procesar y Cruzar Datos (V2)
+      </button>
+      <button id="btnExportar" class="hidden bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-6 py-2.5 rounded-lg transition-all shadow-lg shadow-emerald-500/20">
+        📥 Descargar Excel Final
+      </button>
+    </div>
+
+    <!-- Vista previa -->
+    <div class="bg-slate-800 p-4 rounded-xl border border-slate-700 overflow-x-auto">
+      <h2 class="text-lg font-semibold mb-3 text-slate-200">Vista Previa de Salida (V2)</h2>
+      <table class="w-full text-left text-xs text-slate-300">
+        <thead class="bg-slate-900 text-slate-400 uppercase">
+          <tr>
+            <th class="p-2.5">Fecha</th>
+            <th class="p-2.5">RIF</th>
+            <th class="p-2.5">Proveedor</th>
+            <th class="p-2.5">Concepto</th>
+            <th class="p-2.5">Banco</th>
+            <th class="p-2.5">N° Cuenta</th>
+            <th class="p-2.5 text-right">Monto Bs.</th>
+            <th class="p-2.5 text-right">Monto $</th>
+            <th class="p-2.5 text-center">Semana</th>
+          </tr>
+        </thead>
+        <tbody id="tablaVistaPrevia">
+          <tr>
+            <td colspan="9" class="p-4 text-center text-slate-500">Carga ambos archivos y presiona "Procesar"</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="config.js"></script>
+  <!-- APUNTA A app2.js -->
+  <script src="app2.js"></script>
+</body>
+</html>
