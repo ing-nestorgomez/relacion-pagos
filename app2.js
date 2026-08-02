@@ -1,9 +1,8 @@
 let resultadosConsolidadosV2 = [];
-let archivoPresupuestoRaw = null; // Guardará el archivo Excel original intacto
 
-// Formatear fechas
+// Formatear fechas a DD/MM/YYYY
 function formatearFechaExcel(val) {
-  if (!val) return "23/07/2026";
+  if (!val) return "";
   
   if (val instanceof Date) {
     const dia = String(val.getDate()).padStart(2, '0');
@@ -74,7 +73,7 @@ function leerExcel(inputElement) {
     reader.onload = (evt) => {
       try {
         const data = new Uint8Array(evt.target.result);
-        const wb = XLSX.read(data, { type: 'array', cellDates: true, cellStyles: true, cellFormulas: true });
+        const wb = XLSX.read(data, { type: 'array', cellDates: true });
         resolve(wb);
       } catch (err) {
         reject(err);
@@ -92,18 +91,6 @@ function obtenerValorCelda(sheet, celdaCoord) {
   return null;
 }
 
-// Función auxiliar para asignar valor manteniendo estructura de SheetJS
-function asignarValorCelda(ws, celda, valor, tipo = 's') {
-  if (!ws[celda]) {
-    ws[celda] = {};
-  }
-  ws[celda].t = tipo;
-  ws[celda].v = valor;
-  if (tipo === 'n') {
-    ws[celda].z = '#,##0.00';
-  }
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   const btnProcesar = document.getElementById('btnProcesar') || document.querySelector('button');
   
@@ -112,15 +99,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const inputComprobante = document.getElementById('fileComprobantes');
     const inputBancos = document.getElementById('fileBancos');
-    const inputPresupuesto = document.getElementById('filePresupuesto');
 
     try {
       const comprobanteWB = await leerExcel(inputComprobante);
       const bancosWB = await leerExcel(inputBancos);
-      archivoPresupuestoRaw = await leerExcel(inputPresupuesto); // Guardamos la plantilla base ingresada en el 3er botón
 
-      if (!comprobanteWB || !bancosWB || !archivoPresupuestoRaw) {
-        alert("⚠️ Por favor, selecciona y carga los 3 archivos Excel (Comprobantes, Maestro y el Archivo de Presupuesto) antes de procesar.");
+      if (!comprobanteWB || !bancosWB) {
+        alert("⚠️ Por favor, selecciona y carga los 2 archivos Excel (Comprobantes y Maestro de Bancos) antes de procesar.");
         return;
       }
 
@@ -156,7 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const sheet = comprobanteWB.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
-        let proveedor = "", rif = "", conceptoPartes = [], centroCosto = "ADMINISTRACION", ppto = "SEM 29", totalBs = 0;
+        let proveedor = "", rif = "", conceptoPartes = [], centroCosto = "", ppto = "", totalBs = 0;
 
         let valB10 = obtenerValorCelda(sheet, 'B10');
         let valF28 = obtenerValorCelda(sheet, 'F28');
@@ -244,23 +229,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
           datosBanco = datosBanco || {};
 
+          // Calcular Tasa si existen los dos montos
+          let tasaCalculada = (montoUsd > 0 && totalBs > 0) ? (totalBs / montoUsd) : "";
+
           resultadosConsolidadosV2.push({
             fecha: fecha,
-            rif: rif || datosBanco.rifOriginal || "N/A",
+            rif: rif || datosBanco.rifOriginal || "",
             proveedor: proveedor || datosBanco.proveedor || sheetName,
             concepto: conceptoFinal,
             banco: datosBanco.banco || "NO ENCONTRADO",
             numCuenta: datosBanco.cuenta || "NO ENCONTRADO",
-            anexoDirect: (datosBanco.banco && datosBanco.banco !== "NO ENCONTRADO") ? "SI" : "NO",
             centroCosto: centroCosto,
             montoBs: typeof totalBs === 'number' ? totalBs : parseFloat(totalBs) || 0,
             montoUsd: montoUsd,
+            tasa: tasaCalculada,
             semana: semana
           });
         }
       });
 
-      // 3. Renderizar Tabla HTML Previa
+      // 3. Renderizar Tabla Previa en Pantalla
       const tbody = document.querySelector('tbody');
       if (tbody) {
         tbody.innerHTML = resultadosConsolidadosV2.map(item => `
@@ -278,59 +266,84 @@ document.addEventListener('DOMContentLoaded', () => {
         `).join('');
       }
 
-      const btnExportar = document.getElementById('btnExportar');
-      if (btnExportar) btnExportar.classList.remove('hidden');
+      // Mostrar ambos botones de exportación
+      document.getElementById('btnExportar')?.classList.remove('hidden');
+      document.getElementById('btnExportarV2')?.classList.remove('hidden');
 
-      alert(`✅ ¡Cruce completado! Se procesaron ${resultadosConsolidadosV2.length} filas para insertar en el archivo de Presupuesto.`);
+      alert(`✅ ¡Procesamiento completado! Se consolidaron ${resultadosConsolidadosV2.length} registros. Puedes exportar en cualquiera de los dos formatos.`);
 
     } catch (error) {
-      console.error("❌ Error en procesamiento V2:", error);
+      console.error("❌ Error en procesamiento:", error);
       alert("Ocurrió un error al procesar los archivos: " + error.message);
     }
   });
 
-  // BOTÓN DESCARGAR: Inserta los datos DIRECTAMENTE en el archivo cargado en el 3er botón
+  // BOTÓN 1: Exportar Formato Estándar (Original)
   document.getElementById('btnExportar')?.addEventListener('click', () => {
-    if (!resultadosConsolidadosV2.length) {
-      alert("No hay datos cargados para exportar.");
-      return;
-    }
+    if (!resultadosConsolidadosV2.length) return alert("No hay datos para exportar.");
 
-    if (!archivoPresupuestoRaw) {
-      alert("⚠️ No se encontró el archivo base del 3er botón.");
-      return;
-    }
+    const datosExcel = resultadosConsolidadosV2.map(item => ({
+      "FECHA": item.fecha,
+      "C.I./R.I.F.": item.rif,
+      "NOMBRE Y/O RAZON SOCIAL": item.proveedor,
+      "CONCEPTO": item.concepto,
+      "BANCO": item.banco,
+      "Nro. CUENTA": item.numCuenta,
+      "ANEXO DIRECT": item.banco !== 'NO ENCONTRADO' ? 'SI' : 'NO',
+      "CENTRO COSTO": item.centroCosto,
+      "TOTAL BS.": item.montoBs,
+      "TOTAL $": item.montoUsd,
+      "SEMANA": item.semana
+    }));
 
-    // Tomar la primera hoja del archivo subido en el 3er botón
-    const nombreHoja = archivoPresupuestoRaw.SheetNames[0];
-    const ws = archivoPresupuestoRaw.Sheets[nombreHoja];
+    const ws = XLSX.utils.json_to_sheet(datosExcel);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Solicitud_de_Pagos_V2");
+    XLSX.writeFile(wb, `SOLICITUD_DE_PAGOS_${new Date().toISOString().split('T')[0]}.xlsx`);
+  });
 
-    // Detectar en qué fila empezar a escribir (buscamos la primera fila vacía o después del encabezado en A)
-    let filaInicio = 2; // Por defecto fila 2 (debajo de encabezado A1)
+  // BOTÓN 2: Exportar Formato Procuras y Servicios (Nuevo)
+  document.getElementById('btnExportarV2')?.addEventListener('click', () => {
+    if (!resultadosConsolidadosV2.length) return alert("No hay datos para exportar.");
 
-    // Si la fila 1 tiene encabezados, comprobamos a partir de qué fila está libre o si sobreescribimos desde A2
-    resultadosConsolidadosV2.forEach((item, index) => {
-      const row = filaInicio + index;
+    // Mapeo estricto a las columnas solicitadas
+    const datosProcuras = resultadosConsolidadosV2.map(item => ({
+      "DESCRIPCIÓN DEL REQUERIMIENTO": item.concepto,
+      "TOTAL C/IVA": item.montoBs > 0 ? item.montoBs : "",
+      "CENTRO DE COSTO": item.centroCosto,
+      "CATEGORIA": "",       // Celda en blanco si no hay coincidencia
+      "SUB-CATEGORIA": "",   // Celda en blanco
+      "SUB-DIVISIÓN": "",    // Celda en blanco
+      "ESTATUS": "",         // Celda en blanco
+      "PROVEEDOR": item.proveedor,
+      "BANCO": item.banco,
+      "FECHA EJECUCIÓN": item.fecha,
+      "TOTAL BS": item.montoBs > 0 ? item.montoBs : "",
+      "TASA": item.tasa !== "" ? Number(item.tasa.toFixed(2)) : "",
+      "TOTAL  $": item.montoUsd > 0 ? item.montoUsd : ""
+    }));
 
-      asignarValorCelda(ws, `A${row}`, item.fecha, 's');
-      asignarValorCelda(ws, `B${row}`, item.rif, 's');
-      asignarValorCelda(ws, `C${row}`, item.proveedor, 's');
-      asignarValorCelda(ws, `D${row}`, item.concepto, 's');
-      asignarValorCelda(ws, `E${row}`, item.banco, 's');
-      asignarValorCelda(ws, `F${row}`, item.numCuenta, 's');
-      asignarValorCelda(ws, `G${row}`, item.anexoDirect, 's');
-      asignarValorCelda(ws, `H${row}`, item.centroCosto, 's');
-      asignarValorCelda(ws, `I${row}`, item.montoBs, 'n');
-      asignarValorCelda(ws, `J${row}`, item.montoUsd, 'n');
-      asignarValorCelda(ws, `K${row}`, item.semana, 's');
+    // Generar una única hoja de Excel
+    const ws = XLSX.utils.json_to_sheet(datosProcuras, {
+      header: [
+        "DESCRIPCIÓN DEL REQUERIMIENTO",
+        "TOTAL C/IVA",
+        "CENTRO DE COSTO",
+        "CATEGORIA",
+        "SUB-CATEGORIA",
+        "SUB-DIVISIÓN",
+        "ESTATUS",
+        "PROVEEDOR",
+        "BANCO",
+        "FECHA EJECUCIÓN",
+        "TOTAL BS",
+        "TASA",
+        "TOTAL  $"
+      ]
     });
 
-    // Actualizamos el rango global de la hoja para incluir las nuevas filas
-    const ultimaFila = filaInicio + resultadosConsolidadosV2.length - 1;
-    ws['!ref'] = `A1:K${Math.max(ultimaFila, 100)}`;
-
-    // Guardar usando el mismo libro cargado
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    XLSX.writeFile(archivoPresupuestoRaw, `PRESUPUESTO_ACTUALIZADO_${fechaHoy}.xlsx`);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "PROCURAS Y SERVICIOS");
+    XLSX.writeFile(wb, `PROCURAS_Y_SERVICIOS_${new Date().toISOString().split('T')[0]}.xlsx`);
   });
 });
