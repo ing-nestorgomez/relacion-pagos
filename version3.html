@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Convertidor INDIOIL a PROCURAS Y SERVICIOS</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f4f6f9; }
+        .card { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); max-width: 600px; margin: 0 auto; }
+        h2 { color: #2c3e50; margin-top: 0; }
+        input[type="file"] { margin: 15px 0; display: block; }
+        button { background-color: #27ae60; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 4px; cursor: pointer; }
+        button:hover { background-color: #219150; }
+        #status { margin-top: 15px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>Convertidor: INDIOIL &rarr; PROCURAS Y SERVICIOS</h2>
+    <p>Selecciona el archivo Excel de <strong>INDIOIL</strong> para generar la hoja compatible con el <strong>RESUMEN PRESUPUESTARIO</strong>.</p>
+    
+    <input type="file" id="excelFile" accept=".xlsx, .xls" />
+    <button onclick="convertirExcel()">Convertir y Descargar</button>
+
+    <div id="status"></div>
+</div>
+
+<script>
+function convertirExcel() {
+    const fileInput = document.getElementById('excelFile');
+    const status = document.getElementById('status');
+
+    if (!fileInput.files.length) {
+        alert("Por favor selecciona un archivo Excel de INDIOIL.");
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const reader = new FileReader();
+
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+
+        // Tomar la primera hoja activa de INDIOIL
+        const firstSheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[firstSheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        // Encabezados estándar de PROCURAS Y SERVICIOS (Fila 2)
+        const outputData = [
+            ["", "", "", "PLAN", "", "", "", "", "", "", "", "", "", "", "", "REAL", "", "", "", ""],
+            [
+                "ORIGEN", "SEMANA", "DESCRIPCIÓN DEL REQUERIMIENTO", "UND", "CANT", 
+                "P.U.", "TOTAL C/IVA", "CENTRO DE COSTO", "CATEGORIA", "SUB-CATEGORIA", 
+                "SUB-DIVISIÓN", "ESTATUS", "PROVEEDOR", "BANCO", "FECHA EJECUCIÓN", 
+                "TOTAL BS", "TASA", "TOTAL  $", "NRO. ND", "OBSERVACIONES"
+            ]
+        ];
+
+        // Recorrer filas de INDIOIL (omitimos encabezado registrando desde fila index 2+)
+        for (let i = 2; i < rows.length; i++) {
+            const row = rows[i];
+            if (!row || row.length === 0) continue;
+
+            const banco = row[0] || "";         // Col A: BANCO
+            const fecha = row[1] || "";         // Col B: FECHA
+            const doc = row[2] || "";           // Col C: DOCUMENTO
+            const concepto = row[4] || "";      // Col E: CONCEPTO
+            const descripcion = row[5] || "";   // Col F: DESCRIPCION / BENEFICIARIO
+            const salida = row[10] || "";       // Col K: SALIDA
+
+            // Construir fila formateada para PROCURAS Y SERVICIOS
+            const newRow = [
+                "",            // A: ORIGEN
+                "",            // B: SEMANA
+                descripcion,   // C: DESCRIPCIÓN DEL REQUERIMIENTO (de F)
+                "",            // D: UND
+                "",            // E: CANT
+                "",            // F: P.U.
+                "",            // G: TOTAL C/IVA
+                "",            // H: CENTRO DE COSTO
+                "",            // I: CATEGORIA
+                "",            // J: SUB-CATEGORIA
+                "",            // K: SUB-DIVISIÓN
+                "",            // L: ESTATUS
+                concepto,      // M: PROVEEDOR (de E)
+                banco,         // N: BANCO (de A)
+                fecha,         // O: FECHA EJECUCIÓN (de B)
+                salida,        // P: TOTAL BS (de K)
+                "",            // Q: TASA
+                "",            // R: TOTAL  $
+                doc,           // S: NRO. ND (de C)
+                ""             // T: OBSERVACIONES
+            ];
+
+            outputData.push(newRow);
+        }
+
+        // Crear nuevo libro de trabajo
+        const newWb = XLSX.utils.book_new();
+        const newWs = XLSX.utils.aoa_to_sheet(outputData);
+
+        XLSX.utils.book_append_sheet(newWb, newWs, "PROCURAS Y SERVICIOS");
+
+        // Descargar archivo transformado
+        XLSX.writeFile(newWb, "PROCURAS_Y_SERVICIOS_CONVERTIDO.xlsx");
+        status.innerHTML = "<span style='color:green;'>¡Conversión completada con éxito!</span>";
+    };
+
+    reader.readAsArrayBuffer(file);
+}
+</script>
+
+</body>
+</html>
