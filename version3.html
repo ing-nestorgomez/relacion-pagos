@@ -27,19 +27,6 @@
 </div>
 
 <script>
-function esFilaEncabezado(row) {
-    if (!row || row.length === 0) return false;
-    
-    // Unir todo el texto de la fila en mayúsculas para verificar palabras clave
-    const textoFila = row.map(cell => String(cell || '').trim().toUpperCase()).join(' ');
-    
-    // Si contiene al menos dos palabras clave típicas de títulos, se considera encabezado
-    const keywords = ['BANCO', 'FECHA', 'DOCUMENTO', 'CONCEPTO', 'DESCRIPCION', 'SALIDA'];
-    const coincidencias = keywords.filter(kw => textoFila.includes(kw));
-    
-    return coincidencias.length >= 2;
-}
-
 function convertirExcel() {
     const fileInput = document.getElementById('excelFile');
     const status = document.getElementById('status');
@@ -72,19 +59,26 @@ function convertirExcel() {
             ]
         ];
 
+        // 1. Localizar la fila de encabezado (donde dice BANCO / FECHA)
+        let headerRowIndex = -1;
+        for (let i = 0; i < Math.min(rows.length, 10); i++) {
+            const rowStr = (rows[i] || []).join(' ').toUpperCase();
+            if (rowStr.includes('BANCO') && (rowStr.includes('FECHA') || rowStr.includes('DOCUMENTO'))) {
+                headerRowIndex = i;
+                break;
+            }
+        }
+
+        // Si no encuentra fila de encabezado explícita, asume que empieza desde la fila 0
+        const startIndex = (headerRowIndex !== -1) ? headerRowIndex + 1 : 0;
         let registrosProcesados = 0;
 
-        // Recorrer TODAS las filas desde el principio (índice 0)
-        for (let i = 0; i < rows.length; i++) {
+        // 2. Procesar absolutamente todas las filas desde la primera fila de DATOS
+        for (let i = startIndex; i < rows.length; i++) {
             const row = rows[i];
             
-            // Omitir filas totalmente vacías
+            // Omitir únicamente si la fila está completamente vacía
             if (!row || row.length === 0 || row.every(val => val === null || val === undefined || String(val).trim() === '')) {
-                continue;
-            }
-
-            // Omitir dinámicamente si es la fila de títulos/encabezado
-            if (esFilaEncabezado(row)) {
                 continue;
             }
 
